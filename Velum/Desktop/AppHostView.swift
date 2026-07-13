@@ -11,21 +11,54 @@ import SwiftUI
 struct AppHostView: View {
     let app: VelumApp
     var contextPath: String?
+    var onClose: () -> Void = {}
+    var onMinimize: () -> Void = {}
+    var onZoom: () -> Void = {}
+    var onFocus: () -> Void = {}
+    var onDrag: (CGPoint) -> Void = { _ in }
+    var isMaximized: Bool = false
+    var position: CGPoint = .zero
 
-    init(app: VelumApp, contextPath: String? = nil) {
+    init(
+        app: VelumApp,
+        contextPath: String? = nil,
+        onClose: @escaping () -> Void = {},
+        onMinimize: @escaping () -> Void = {},
+        onZoom: @escaping () -> Void = {},
+        onFocus: @escaping () -> Void = {},
+        onDrag: @escaping (CGPoint) -> Void = { _ in },
+        isMaximized: Bool = false,
+        position: CGPoint = .zero
+    ) {
         self.app = app
         self.contextPath = contextPath
+        self.onClose = onClose
+        self.onMinimize = onMinimize
+        self.onZoom = onZoom
+        self.onFocus = onFocus
+        self.onDrag = onDrag
+        self.isMaximized = isMaximized
+        self.position = position
     }
 
     var body: some View {
         switch app {
         case .launcher:
-            // Launcher never opens a window — it's a dock-only entry.
             EmptyView()
         case .terminal:
             TerminalView()
         case .files:
             FilesView(initialPath: contextPath ?? "/")
+        case .browser:
+            BrowserView(
+                onClose: onClose,
+                onMinimize: onMinimize,
+                onZoom: onZoom,
+                onFocus: onFocus,
+                onDrag: onDrag,
+                isMaximized: isMaximized,
+                position: position
+            )
         case .settings:
             SettingsView()
         case .about:

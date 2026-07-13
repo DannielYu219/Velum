@@ -2,176 +2,157 @@
 //  AgentView.swift
 //  Velum
 //
-//  Phase 5.2 + 5.3: Agent App 对话 UI + MCP 客户端
-//
-//  上下结构：消息流（ScrollView + LazyVStack）+ 输入框（TextEditor + 发送按钮）
-//  用户输入 → 转发给 LLM → LLM 返回 tool_call → 通过 MCP 协议调用 → 结果回显
+//  照抄 Visor：DesignSessionView + ComposerBar + MessageBubble + MarkdownView + TypingIndicator + DesignTokens
+//  适配 Velum：ObservableObject（非 @Observable）、去掉附件功能、适配窗口系统
 //
 
 import SwiftUI
 
-// MARK: - Message Model
+// MARK: - DesignTokens（照抄 Visor）
 
-struct AgentMessage: Identifiable, Hashable {
-    let id = UUID()
-    let role: Role
-    var content: String
-    var toolCalls: [ToolCallRecord]
-    let timestamp: Date
-
-    enum Role: String {
-        case user
-        case assistant
-        case tool
+enum AgentDesignTokens {
+    enum Spacing {
+        static let xs: CGFloat = 4
+        static let s: CGFloat = 8
+        static let m: CGFloat = 12
+        static let l: CGFloat = 16
+        static let xl: CGFloat = 20
+        static let xxl: CGFloat = 24
+        static let xxxl: CGFloat = 32
     }
-
-    init(role: Role, content: String, toolCalls: [ToolCallRecord] = []) {
-        self.role = role
-        self.content = content
-        self.toolCalls = toolCalls
-        self.timestamp = Date()
+    enum Radius {
+        static let xs: CGFloat = 8
+        static let s: CGFloat = 12
+        static let m: CGFloat = 20
+        static let l: CGFloat = 28
     }
-}
-
-struct ToolCallRecord: Hashable {
-    let toolName: String
-    let arguments: String
-    var result: String?
-    var isError: Bool = false
-}
-
-// MARK: - AgentViewModel
-
-@MainActor
-final class AgentViewModel: ObservableObject {
-
-    @Published var messages: [AgentMessage] = []
-    @Published var inputText: String = ""
-    @Published var isProcessing: Bool = false
-    @Published var availableTools: [MCPTool] = []
-
-    // 连接到本机 MCP Server 的客户端
-    private let client = MCPClient(endpoint: "127.0.0.1", port: 8765)
-
-    init() {
-        // 欢迎消息
-        messages.append(AgentMessage(
-            role: .assistant,
-            content: "你好！我是 Velum Agent。我可以帮你执行 shell 命令、管理文件、启动应用等。试试问我「列出 /etc 下的文件」或「执行 uname -a」。"
-        ))
+    enum FontSize {
+        static let caption: CGFloat = 14
+        static let body: CGFloat = 16
+        static let bodyLarge: CGFloat = 19
+        static let title: CGFloat = 24
     }
-
-    func loadTools() async {
-        do {
-            let tools = try await client.listTools()
-            availableTools = tools
-        } catch {
-            print("[Agent] 加载工具列表失败: \(error)")
-        }
-    }
-
-    func send() async {
-        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isProcessing else { return }
-
-        // 添加用户消息
-        messages.append(AgentMessage(role: .user, content: text))
-        inputText = ""
-        isProcessing = true
-
-        // 添加占位 assistant 消息（流式更新）
-        let assistantIdx = messages.count
-        messages.append(AgentMessage(role: .assistant, content: "思考中…"))
-
-        do {
-            // 调用 mock LLM（Step 5.3 用真实 LLM 替换）
-            let response = try await MockLLM.respond(
-                to: text,
-                availableTools: availableTools.map { $0.name }
-            )
-
-            // 如果 LLM 决定调 tool
-            if let toolCall = response.toolCall {
-                let argsJson = toolCall.arguments
-                    .sorted { $0.key < $1.key }
-                    .map { "\($0.key): \($0.value)" }
-                    .joined(separator: ", ")
-
-                var record = ToolCallRecord(
-                    toolName: toolCall.name,
-                    arguments: argsJson
-                )
-
-                // 通过 MCP 客户端调用 tool
-                do {
-                    let result = try await client.callTool(name: toolCall.name, args: toolCall.arguments)
-                    record.result = result.content.first?.text ?? "(空)"
-                    record.isError = result.isError
-                } catch {
-                    record.result = "调用失败: \(error.localizedDescription)"
-                    record.isError = true
-                }
-
-                messages[assistantIdx].content = response.text
-                messages[assistantIdx].toolCalls = [record]
-
-                // 添加 tool 结果消息
-                messages.append(AgentMessage(
-                    role: .tool,
-                    content: record.result ?? "(无输出)"
-                ))
-
-                // 让 LLM 看到结果后再总结
-                let summary = try await MockLLM.summarize(
-                    userQuery: text,
-                    toolName: toolCall.name,
-                    toolResult: record.result ?? ""
-                )
-                messages.append(AgentMessage(role: .assistant, content: summary))
-            } else {
-                // 纯文本回复
-                messages[assistantIdx].content = response.text
-            }
-        } catch {
-            messages[assistantIdx].content = "出错: \(error.localizedDescription)"
-        }
-
-        isProcessing = false
+    enum Touch {
+        static let standard: CGFloat = 48
+        static let icon: CGFloat = 20
+        static let compact: CGFloat = 44
+        static let compactIcon: CGFloat = 18
     }
 }
 
-// MARK: - AgentView
+// MARK: - AgentView（照抄 Visor DesignSessionView）
 
 struct AgentView: View {
-    @StateObject private var vm = AgentViewModel()
+    @StateObject private var viewModel = AgentViewModel()
+    @ObservedObject private var config = AgentConfig.shared
+    @State private var showSettings = false
+    @State private var sidebarCollapsed: Bool = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            messageList
-            inputBar
+        HStack(spacing: 0) {
+            // 会话侧边栏
+            if !sidebarCollapsed {
+                SessionSidebarView(
+                    selectedSessionId: $viewModel.currentSessionId,
+                    isCollapsed: $sidebarCollapsed
+                )
+                .frame(width: 240)
+                Divider().opacity(0.2)
+            }
+
+            // 主聊天区域
+            VStack(spacing: 0) {
+                header
+                if let error = viewModel.errorMessage {
+                    errorBanner(error)
+                }
+                Divider().opacity(0.2)
+                chatPanel
+                ComposerBar(viewModel: viewModel)
+            }
         }
-        .background(Color.clear)
-        .task {
-            await vm.loadTools()
+        .background(Color(.systemBackground))
+        .onAppear {
+            Task { await viewModel.initializeSession() }
+        }
+        .onChange(of: viewModel.currentSessionId) { newId in
+            guard let id = newId else { return }
+            Task { await viewModel.loadSession(id) }
+        }
+        .sheet(isPresented: $showSettings) {
+            AgentSettingsView()
         }
     }
 
-    // MARK: - Message list
+    // MARK: - Header（顶栏：模型名 + token + 设置按钮）
 
-    private var messageList: some View {
+    private var header: some View {
+        HStack(spacing: AgentDesignTokens.Spacing.s) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    sidebarCollapsed.toggle()
+                }
+            } label: {
+                Image(systemName: "sidebar.left")
+                    .font(.system(size: AgentDesignTokens.Touch.icon, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .frame(width: AgentDesignTokens.Touch.standard, height: AgentDesignTokens.Touch.standard)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(config.modelDisplayName.isEmpty ? "Agent" : config.modelDisplayName)
+                    .font(.system(size: AgentDesignTokens.FontSize.title, weight: .semibold))
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text("in \(viewModel.sessionInputTokens)")
+                    Text("·")
+                    Text("out \(viewModel.sessionOutputTokens)")
+                }
+                .font(.system(size: AgentDesignTokens.FontSize.caption))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+            }
+            Spacer()
+            Button {
+                showSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: AgentDesignTokens.Touch.icon, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .frame(width: AgentDesignTokens.Touch.standard, height: AgentDesignTokens.Touch.standard)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, AgentDesignTokens.Spacing.l)
+        .padding(.vertical, AgentDesignTokens.Spacing.s)
+    }
+
+    // MARK: - Chat Panel
+
+    private var chatPanel: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 12) {
-                    ForEach(vm.messages) { msg in
-                        MessageBubble(message: msg)
-                            .id(msg.id)
+                LazyVStack(alignment: .leading, spacing: AgentDesignTokens.Spacing.l) {
+                    if viewModel.messages.isEmpty {
+                        emptyState
+                    } else {
+                        ForEach(viewModel.messages) { msg in
+                            MessageBubble(message: msg)
+                                .id(msg.id)
+                        }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.vertical, AgentDesignTokens.Spacing.m)
             }
-            .onChange(of: vm.messages.count) { _ in
-                if let last = vm.messages.last {
+            .onChange(of: viewModel.messages.last?.content) { _ in
+                if let last = viewModel.messages.last {
                     withAnimation(.easeOut(duration: 0.2)) {
                         proxy.scrollTo(last.id, anchor: .bottom)
                     }
@@ -180,106 +161,409 @@ struct AgentView: View {
         }
     }
 
-    // MARK: - Input bar
-
-    private var inputBar: some View {
-        HStack(spacing: 8) {
-            TextEditor(text: $vm.inputText)
-                .font(.body)
-                .scrollContentBackground(.hidden)
-                .background(Color.clear)
-                .frame(minHeight: 28, maxHeight: 80)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.white.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-
-            Button {
-                Task { await vm.send() }
-            } label: {
-                Image(systemName: "paperplane.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 32, height: 32)
-                    .background(
-                        vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            ? Color.gray.opacity(0.4)
-                            : Color.accentColor
-                    )
-                    .clipShape(Circle())
-            }
-            .disabled(vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.isProcessing)
+    private var emptyState: some View {
+        VStack(spacing: AgentDesignTokens.Spacing.s) {
+            Image(systemName: "terminal.fill")
+                .font(.system(size: 32))
+                .foregroundStyle(.secondary)
+            Text("输入消息开始对话")
+                .font(.system(size: AgentDesignTokens.FontSize.caption))
+                .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color.black.opacity(0.2))
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, AgentDesignTokens.Spacing.xxxl)
+    }
+
+    // MARK: - Banner
+
+    private func errorBanner(_ message: String) -> some View {
+        HStack {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+            Text(message)
+                .font(.system(size: AgentDesignTokens.FontSize.caption))
+            Spacer()
+            Button {
+                viewModel.errorMessage = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 16))
+            }
+        }
+        .padding(.horizontal, AgentDesignTokens.Spacing.l)
+        .padding(.vertical, AgentDesignTokens.Spacing.s)
+        .background(Color.red.opacity(0.12))
     }
 }
 
-// MARK: - Message Bubble
+// MARK: - ComposerBar（照抄 Visor，去掉附件功能）
 
-private struct MessageBubble: View {
-    let message: AgentMessage
+struct ComposerBar: View {
+    @ObservedObject var viewModel: AgentViewModel
+    @FocusState private var isFocused: Bool
 
     var body: some View {
-        HStack {
-            if message.role == .user { Spacer(minLength: 40) }
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
-                Text(message.content)
-                    .font(.body)
-                    .foregroundStyle(.primary)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(bubbleBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        HStack(alignment: .center, spacing: 0) {
+            TextField("输入消息…", text: $viewModel.draft, axis: .vertical)
+                .font(.system(size: AgentDesignTokens.FontSize.bodyLarge))
+                .lineLimit(1...5)
+                .padding(.leading, 16)
+                .padding(.trailing, 4)
+                .padding(.vertical, 10)
+                .focused($isFocused)
+                .submitLabel(.send)
+                .onSubmit(submit)
 
-                // 显示 tool 调用记录
-                ForEach(message.toolCalls.indices, id: \.self) { i in
-                    ToolCallView(record: message.toolCalls[i])
+            Button(action: action) {
+                Image(systemName: viewModel.isStreaming ? "stop.fill" : "arrow.up")
+                    .font(.system(size: AgentDesignTokens.Touch.compactIcon, weight: .medium))
+                    .foregroundStyle(viewModel.isStreaming ? Color.red : .primary)
+                    .frame(width: AgentDesignTokens.Touch.compact, height: AgentDesignTokens.Touch.compact)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!viewModel.isStreaming && viewModel.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .opacity(canSend ? 1.0 : 0.4)
+            .padding(.trailing, 6)
+            .padding(.vertical, 6)
+        }
+        .frame(minHeight: AgentDesignTokens.Touch.compact + 12)
+        .background(Color(.secondarySystemBackground), in: Capsule())
+        .overlay(Capsule().strokeBorder(.white.opacity(0.08), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.04), radius: 16, y: 4)
+        .padding(.horizontal, AgentDesignTokens.Spacing.l)
+        .padding(.bottom, AgentDesignTokens.Spacing.s)
+    }
+
+    private var canSend: Bool {
+        if viewModel.isStreaming { return true }
+        return !viewModel.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var action: () -> Void {
+        viewModel.isStreaming ? viewModel.stop : viewModel.send
+    }
+
+    private func submit() {
+        guard !viewModel.isStreaming, canSend else { return }
+        viewModel.send()
+    }
+}
+
+// MARK: - MessageBubble（照抄 Visor）
+
+struct MessageBubble: View {
+    let message: AgentMessage
+    @State private var reasoningExpanded: Bool = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: AgentDesignTokens.Spacing.s) {
+            if message.role == "user" {
+                Spacer(minLength: AgentDesignTokens.Spacing.xxxl * 2)
+                bubbleContent
+            } else {
+                bubbleContent
+                Spacer(minLength: AgentDesignTokens.Spacing.xxxl * 2)
+            }
+        }
+        .padding(.horizontal, AgentDesignTokens.Spacing.l)
+    }
+
+    @ViewBuilder
+    private var bubbleContent: some View {
+        VStack(alignment: message.role == "user" ? .trailing : .leading, spacing: AgentDesignTokens.Spacing.xs) {
+            if message.role == "tool" {
+                toolBubble
+            } else {
+                if !message.reasoning.isEmpty {
+                    reasoningSection
+                }
+                if !message.content.isEmpty || message.isStreaming {
+                    contentView
                 }
             }
-            if message.role != .user { Spacer(minLength: 40) }
+
+            HStack(spacing: AgentDesignTokens.Spacing.xs) {
+                if message.isStreaming {
+                    TypingIndicator()
+                }
+            }
+            .padding(.horizontal, AgentDesignTokens.Spacing.s)
         }
     }
 
-    private var bubbleBackground: Color {
-        switch message.role {
-        case .user:      return Color.accentColor.opacity(0.2)
-        case .assistant: return Color.white.opacity(0.08)
-        case .tool:      return Color.green.opacity(0.1)
+    @ViewBuilder
+    private var contentView: some View {
+        let displayText = message.content.isEmpty && message.isStreaming ? " " : message.content
+        if message.role == "user" {
+            Text(displayText)
+                .font(.system(size: AgentDesignTokens.FontSize.bodyLarge))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.leading)
+                .textSelection(.enabled)
+                .padding(.horizontal, AgentDesignTokens.Spacing.l)
+                .padding(.vertical, AgentDesignTokens.Spacing.m)
+                .background(
+                    RoundedRectangle(cornerRadius: AgentDesignTokens.Radius.m, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.92))
+                )
+        } else {
+            MarkdownView(text: displayText)
+                .padding(.horizontal, AgentDesignTokens.Spacing.l)
+                .padding(.vertical, AgentDesignTokens.Spacing.m)
+                .background(
+                    RoundedRectangle(cornerRadius: AgentDesignTokens.Radius.m, style: .continuous)
+                        .fill(Color(.secondarySystemBackground))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: AgentDesignTokens.Radius.m, style: .continuous)
+                        .strokeBorder(.white.opacity(0.08), lineWidth: 0.5)
+                )
         }
+    }
+
+    private var reasoningSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    reasoningExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "brain.head.profile")
+                        .font(.system(size: 11))
+                    Text("思考过程")
+                        .font(.system(size: AgentDesignTokens.FontSize.caption))
+                    Image(systemName: reasoningExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9))
+                }
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+
+            if reasoningExpanded {
+                Text(message.reasoning)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, AgentDesignTokens.Spacing.m)
+                    .padding(.vertical, AgentDesignTokens.Spacing.s)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.tertiarySystemBackground).opacity(0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: AgentDesignTokens.Radius.xs, style: .continuous))
+                    .padding(.top, AgentDesignTokens.Spacing.xs)
+            }
+        }
+        .padding(.horizontal, AgentDesignTokens.Spacing.s)
+    }
+
+    private var toolBubble: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "gearshape.2.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(.green)
+            VStack(alignment: .leading, spacing: 2) {
+                if let name = message.name {
+                    Text(name)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.green)
+                }
+                Text(formatToolResult(message.content))
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(20)
+                    .textSelection(.enabled)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, AgentDesignTokens.Spacing.m)
+        .padding(.vertical, AgentDesignTokens.Spacing.s)
+        .frame(maxWidth: 480, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: AgentDesignTokens.Radius.xs, style: .continuous)
+                .fill(Color.green.opacity(0.06))
+        )
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(Color.green.opacity(0.5))
+                .frame(width: 2)
+        }
+    }
+
+    private func formatToolResult(_ raw: String) -> String {
+        if raw.count <= 200 { return raw }
+        return String(raw.prefix(200)) + "…"
     }
 }
 
-private struct ToolCallView: View {
-    let record: ToolCallRecord
+// MARK: - MarkdownView（照抄 Visor，自定义解析无第三方依赖）
+
+struct MarkdownView: View {
+    let text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Image(systemName: record.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                    .foregroundStyle(record.isError ? .orange : .green)
-                    .font(.caption)
-                Text(record.toolName)
-                    .font(.caption.monospaced())
-                    .fontWeight(.semibold)
-            }
-            Text(record.arguments)
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-            if let result = record.result {
-                Text(result)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(8)
-                    .padding(6)
-                    .background(Color.black.opacity(0.15))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+        VStack(alignment: .leading, spacing: AgentDesignTokens.Spacing.s) {
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                renderBlock(block)
             }
         }
-        .padding(8)
-        .background(Color.white.opacity(0.05))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
+    }
+
+    private enum Block {
+        case heading(level: Int, content: String)
+        case paragraph(String)
+        case codeBlock(language: String?, content: String)
+        case listItem(String, ordered: Bool, index: Int)
+        case blockquote(String)
+        case thematicBreak
+        case blank
+    }
+
+    private var blocks: [Block] { parseBlocks(text) }
+
+    private func parseBlocks(_ source: String) -> [Block] {
+        var result: [Block] = []
+        let lines = source.components(separatedBy: "\n")
+        var i = 0
+        var orderedIndex = 0
+        while i < lines.count {
+            let line = lines[i]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                result.append(.blank); orderedIndex = 0; i += 1; continue
+            }
+            if trimmed.hasPrefix("```") {
+                let lang = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                var codeLines: [String] = []
+                i += 1
+                while i < lines.count && !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                    codeLines.append(lines[i]); i += 1
+                }
+                if i < lines.count { i += 1 }
+                result.append(.codeBlock(language: lang.isEmpty ? nil : lang, content: codeLines.joined(separator: "\n")))
+                orderedIndex = 0; continue
+            }
+            if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+                result.append(.thematicBreak); orderedIndex = 0; i += 1; continue
+            }
+            if let level = headingLevel(trimmed) {
+                let content = trimmed.replacingOccurrences(of: "^#{1,6}\\s*", with: "", options: .regularExpression)
+                result.append(.heading(level: level, content: content)); orderedIndex = 0; i += 1; continue
+            }
+            if trimmed.hasPrefix(">") {
+                let content = trimmed.replacingOccurrences(of: "^>\\s*", with: "", options: .regularExpression)
+                result.append(.blockquote(content)); orderedIndex = 0; i += 1; continue
+            }
+            if let match = trimmed.range(of: "^\\d+\\.\\s", options: .regularExpression) {
+                let content = String(trimmed[match.upperBound...])
+                orderedIndex += 1
+                result.append(.listItem(content, ordered: true, index: orderedIndex)); i += 1; continue
+            }
+            if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("+ ") {
+                let content = String(trimmed.dropFirst(2))
+                result.append(.listItem(content, ordered: false, index: 0)); orderedIndex = 0; i += 1; continue
+            }
+            result.append(.paragraph(trimmed)); orderedIndex = 0; i += 1
+        }
+        return result
+    }
+
+    private func headingLevel(_ line: String) -> Int? {
+        var count = 0
+        for ch in line { if ch == "#" { count += 1 } else { break } }
+        if count > 0 && count <= 6 && line.count > count && line[line.index(line.startIndex, offsetBy: count)] == " " {
+            return count
+        }
+        return nil
+    }
+
+    @ViewBuilder
+    private func renderBlock(_ block: Block) -> some View {
+        switch block {
+        case .heading(let level, let content):
+            headingView(level: level, content: content)
+        case .paragraph(let content):
+            inlineText(content)
+                .font(.system(size: AgentDesignTokens.FontSize.bodyLarge))
+                .lineSpacing(4)
+        case .codeBlock(_, let content):
+            Text(content)
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, AgentDesignTokens.Spacing.m)
+                .padding(.vertical, AgentDesignTokens.Spacing.s)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(.tertiarySystemBackground).opacity(0.6))
+                .clipShape(RoundedRectangle(cornerRadius: AgentDesignTokens.Radius.xs, style: .continuous))
+        case .listItem(let content, let ordered, let index):
+            HStack(alignment: .top, spacing: 6) {
+                if ordered {
+                    Text("\(index).").font(.system(size: AgentDesignTokens.FontSize.bodyLarge)).foregroundStyle(.secondary)
+                } else {
+                    Text("•").font(.system(size: AgentDesignTokens.FontSize.bodyLarge)).foregroundStyle(.secondary)
+                }
+                inlineText(content).font(.system(size: AgentDesignTokens.FontSize.bodyLarge)).lineSpacing(4)
+            }
+        case .blockquote(let content):
+            HStack(alignment: .top, spacing: 8) {
+                Rectangle().fill(Color.secondary.opacity(0.4)).frame(width: 3)
+                inlineText(content).font(.system(size: AgentDesignTokens.FontSize.bodyLarge)).foregroundStyle(.secondary).lineSpacing(4)
+            }
+        case .thematicBreak:
+            Rectangle().fill(Color.secondary.opacity(0.2)).frame(height: 1)
+        case .blank:
+            Color.clear.frame(height: 4)
+        }
+    }
+
+    @ViewBuilder
+    private func headingView(level: Int, content: String) -> some View {
+        let font: Font = {
+            switch level {
+            case 1: return .system(size: 26, weight: .bold)
+            case 2: return .system(size: 23, weight: .bold)
+            case 3: return .system(size: 21, weight: .semibold)
+            case 4: return .system(size: 19, weight: .semibold)
+            case 5: return .system(size: 18, weight: .semibold)
+            default: return .system(size: AgentDesignTokens.FontSize.bodyLarge)
+            }
+        }()
+        Text(inlineAttributed(content)).font(font).lineSpacing(2)
+    }
+
+    private func inlineText(_ s: String) -> some View {
+        Text(inlineAttributed(s))
+    }
+
+    private func inlineAttributed(_ s: String) -> AttributedString {
+        if let attr = try? AttributedString(markdown: s) { return attr }
+        return AttributedString(s)
+    }
+}
+
+// MARK: - TypingIndicator（照抄 Visor）
+
+private struct TypingIndicator: View {
+    @State private var phase: Int = 0
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle().fill(Color.secondary).frame(width: 5, height: 5)
+                    .opacity(phase == i ? 1.0 : 0.3)
+            }
+        }
+        .onAppear { startTimer() }
+    }
+    private func startTimer() {
+        Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                phase = (phase + 1) % 3
+            }
+        }
     }
 }

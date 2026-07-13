@@ -15,6 +15,7 @@ public enum VelumApp: String, CaseIterable, Identifiable {
     case launcher
     case terminal
     case files
+    case browser
     case settings
     case about
     case agent
@@ -29,6 +30,7 @@ public enum VelumApp: String, CaseIterable, Identifiable {
         case .launcher:  return "Apps"
         case .terminal:  return "Terminal"
         case .files:     return "Files"
+        case .browser:   return "Browser"
         case .settings:  return "Settings"
         case .about:     return "About"
         case .agent:     return "Agent"
@@ -40,6 +42,7 @@ public enum VelumApp: String, CaseIterable, Identifiable {
         case .launcher:  return "square.grid.2x2.fill"
         case .terminal:  return "terminal.fill"
         case .files:     return "folder.fill"
+        case .browser:   return "safari.fill"
         case .settings:  return "gearshape.fill"
         case .about:     return "info.circle.fill"
         case .agent:     return "bubble.left.and.text.bubble.right.fill"
@@ -51,6 +54,7 @@ public enum VelumApp: String, CaseIterable, Identifiable {
         case .launcher:  return nil  // ⌘+L is the global shortcut
         case .terminal:  return "t"
         case .files:     return "f"
+        case .browser:   return "b"
         case .settings:  return ","
         case .about:     return "i"
         case .agent:     return "a"

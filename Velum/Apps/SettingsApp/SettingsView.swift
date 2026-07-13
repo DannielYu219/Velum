@@ -7,11 +7,17 @@
 //
 
 import SwiftUI
+import PhotosUI
 
 struct SettingsView: View {
+    @ObservedObject private var wallpaper = WallpaperManager.shared
+    @State private var showPhotoPicker: Bool = false
+    @State private var showFilePicker: Bool = false
+    @State private var selectedPhotoItem: PhotosPickerItem?
     var body: some View {
         NavigationStack {
             List {
+                wallpaperSection
                 appearanceSection
                 fontSection
                 cursorSection
@@ -26,6 +32,58 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
         }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItem, matching: .images)
+        .onChange(of: selectedPhotoItem) { newItem in
+            guard let item = newItem else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    WallpaperManager.shared.setImage(image)
+                }
+            }
+        }
+        .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.image]) { result in
+            if case .success(let url) = result, let data = try? Data(contentsOf: url),
+               let image = UIImage(data: data) {
+                WallpaperManager.shared.setImage(image)
+            }
+        }
+    }
+
+    // MARK: - Wallpaper
+
+    @ViewBuilder
+    private var wallpaperSection: some View {
+        Section("桌面壁纸") {
+            if let img = wallpaper.customImage {
+                HStack {
+                    Text("当前壁纸已设置")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Image(uiImage: img)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 48, height: 36)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                Button(role: .destructive) {
+                    WallpaperManager.shared.clearImage()
+                } label: {
+                    Label("恢复默认壁纸", systemImage: "arrow.counterclockwise")
+                }
+            }
+            Button {
+                showPhotoPicker = true
+            } label: {
+                Label("从相册选取", systemImage: "photo.on.rectangle")
+            }
+            Button {
+                showFilePicker = true
+            } label: {
+                Label("从文件选取", systemImage: "folder")
+            }
+        }
+        .listRowBackground(Color.clear)
     }
 
     // MARK: - Appearance

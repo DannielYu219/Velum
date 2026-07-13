@@ -349,8 +349,15 @@
 		VLM1000220000000000000022 /* FirstBootSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000220000000000000022 /* FirstBootSetup.swift */; };
 		VLM1000230000000000000023 /* MCPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000230000000000000023 /* MCPServer.swift */; };
 		VLM1000240000000000000024 /* AgentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000240000000000000024 /* AgentView.swift */; };
-		VLM1000250000000000000025 /* MCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000250000000000000025 /* MCPClient.swift */; };
-		VLM1000260000000000000026 /* MockLLM.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000260000000000000026 /* MockLLM.swift */; };
+		VLM1000270000000000000027 /* BrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000270000000000000027 /* BrowserView.swift */; };
+		VLM1000280000000000000028 /* WallpaperManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000280000000000000028 /* WallpaperManager.swift */; };
+		VLM1000290000000000000029 /* LLMService.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000290000000000000029 /* LLMService.swift */; };
+		VLM1000340000000000000034 /* AgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000340000000000000034 /* AgentSession.swift */; };
+		VLM1000350000000000000035 /* AgentViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000350000000000000035 /* AgentViewModel.swift */; };
+		VLM1000360000000000000036 /* AgentSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000360000000000000036 /* AgentSettingsView.swift */; };
+		VLM1000370000000000000037 /* ModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000370000000000000037 /* ModelCatalog.swift */; };
+		VLM1000380000000000000038 /* CustomProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000380000000000000038 /* CustomProvider.swift */; };
+		VLM1000390000000000000039 /* SessionSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000390000000000000039 /* SessionSidebarView.swift */; };
 		VLM1000190000000000000019 /* ISHShellExecutor.m in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000190000000000000019 /* ISHShellExecutor.m */; };
 /* End PBXBuildFile section */
 
@@ -919,8 +926,15 @@
 		VLM0000220000000000000022 /* FirstBootSetup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstBootSetup.swift; sourceTree = "<group>"; };
 		VLM0000230000000000000023 /* MCPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPServer.swift; sourceTree = "<group>"; };
 		VLM0000240000000000000024 /* AgentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentView.swift; sourceTree = "<group>"; };
-		VLM0000250000000000000025 /* MCPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPClient.swift; sourceTree = "<group>"; };
-		VLM0000260000000000000026 /* MockLLM.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockLLM.swift; sourceTree = "<group>"; };
+		VLM0000270000000000000027 /* BrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserView.swift; sourceTree = "<group>"; };
+		VLM0000280000000000000028 /* WallpaperManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WallpaperManager.swift; sourceTree = "<group>"; };
+		VLM0000290000000000000029 /* LLMService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMService.swift; sourceTree = "<group>"; };
+		VLM0000340000000000000034 /* AgentSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSession.swift; sourceTree = "<group>"; };
+		VLM0000350000000000000035 /* AgentViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentViewModel.swift; sourceTree = "<group>"; };
+		VLM0000360000000000000036 /* AgentSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSettingsView.swift; sourceTree = "<group>"; };
+		VLM0000370000000000000037 /* ModelCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelCatalog.swift; sourceTree = "<group>"; };
+		VLM0000380000000000000038 /* CustomProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomProvider.swift; sourceTree = "<group>"; };
+		VLM0000390000000000000039 /* SessionSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSidebarView.swift; sourceTree = "<group>"; };
 		VLM0000180000000000000018 /* ISHShellExecutor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ISHShellExecutor.h; sourceTree = "<group>"; };
 		VLM0000190000000000000019 /* ISHShellExecutor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ISHShellExecutor.m; sourceTree = "<group>"; };
 		VLM0000040000000000000004 /* Velum-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Velum-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -1337,6 +1351,7 @@
 			isa = PBXGroup;
 			children = (
 				VLM2000050000000000000006 /* FilesApp */,
+				VLM2000080000000000000009 /* BrowserApp */,
 				VLM2000060000000000000007 /* SettingsApp */,
 				VLM2000070000000000000008 /* AgentApp */,
 			);
@@ -1356,6 +1371,7 @@
 			children = (
 				VLM0000200000000000000020 /* SettingsView.swift */,
 				VLM0000210000000000000021 /* RootfsManager.swift */,
+				VLM0000280000000000000028 /* WallpaperManager.swift */,
 			);
 			path = Velum/Apps/SettingsApp;
 			sourceTree = SOURCE_ROOT;
@@ -1364,10 +1380,23 @@
 			isa = PBXGroup;
 			children = (
 				VLM0000240000000000000024 /* AgentView.swift */,
-				VLM0000250000000000000025 /* MCPClient.swift */,
-				VLM0000260000000000000026 /* MockLLM.swift */,
+				VLM0000350000000000000035 /* AgentViewModel.swift */,
+				VLM0000340000000000000034 /* AgentSession.swift */,
+				VLM0000360000000000000036 /* AgentSettingsView.swift */,
+				VLM0000370000000000000037 /* ModelCatalog.swift */,
+				VLM0000380000000000000038 /* CustomProvider.swift */,
+				VLM0000390000000000000039 /* SessionSidebarView.swift */,
+				VLM0000290000000000000029 /* LLMService.swift */,
 			);
 			path = Velum/Apps/AgentApp;
+			sourceTree = SOURCE_ROOT;
+		};
+		VLM2000080000000000000009 /* BrowserApp */ = {
+			isa = PBXGroup;
+			children = (
+				VLM0000270000000000000027 /* BrowserView.swift */,
+			);
+			path = Velum/Apps/BrowserApp;
 			sourceTree = SOURCE_ROOT;
 		};
 		BB792B7D1F96E32B00FFB7A4 /* Frameworks */ = {
@@ -2701,8 +2730,15 @@
 				VLM1000220000000000000022 /* FirstBootSetup.swift in Sources */,
 				VLM1000230000000000000023 /* MCPServer.swift in Sources */,
 				VLM1000240000000000000024 /* AgentView.swift in Sources */,
-				VLM1000250000000000000025 /* MCPClient.swift in Sources */,
-				VLM1000260000000000000026 /* MockLLM.swift in Sources */,
+				VLM1000270000000000000027 /* BrowserView.swift in Sources */,
+				VLM1000280000000000000028 /* WallpaperManager.swift in Sources */,
+				VLM1000290000000000000029 /* LLMService.swift in Sources */,
+				VLM1000340000000000000034 /* AgentSession.swift in Sources */,
+				VLM1000350000000000000035 /* AgentViewModel.swift in Sources */,
+				VLM1000360000000000000036 /* AgentSettingsView.swift in Sources */,
+				VLM1000370000000000000037 /* ModelCatalog.swift in Sources */,
+				VLM1000380000000000000038 /* CustomProvider.swift in Sources */,
+				VLM1000390000000000000039 /* SessionSidebarView.swift in Sources */,
 				VLM1000190000000000000019 /* ISHShellExecutor.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

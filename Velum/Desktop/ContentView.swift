@@ -21,6 +21,7 @@ struct ContentView: View {
     @ObservedObject private var kernel = Kernel.shared
     @ObservedObject private var control = VelumControl.shared
     @ObservedObject private var wm = WindowManager.shared
+    @ObservedObject private var wp = WallpaperManager.shared
     @StateObject private var firstBoot = FirstBootSetup()
 
     var body: some View {
@@ -101,15 +102,22 @@ struct ContentView: View {
 
     @ViewBuilder
     private var backgroundLayer: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.08, green: 0.10, blue: 0.16),
-                Color(red: 0.14, green: 0.18, blue: 0.28)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
+        if let image = wp.customImage {
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .ignoresSafeArea()
+        } else {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.08, green: 0.10, blue: 0.16),
+                    Color(red: 0.14, green: 0.18, blue: 0.28)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        }
     }
 
     @ViewBuilder
@@ -253,41 +261,53 @@ private struct DesktopWindow: View {
             let winCenter = isMin ? dockIconCenter(geo.size) : normalCenter
 
             VStack(spacing: 0) {
-                // Title bar — red-green-yellow group + drag + tap to focus
-                HStack(spacing: 0) {
-                    Trinity(
-                        onClose: onClose,
-                        onMinimize: onMinimize,
-                        onZoom: onZoom
-                    )
-                    Spacer()
-                }
-                .contentShape(Rectangle())
-                .onTapGesture { onFocus() }
-                .gesture(
-                    DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                        .onChanged { value in
-                            if !window.isMaximized {
-                                if dragOrigin == nil {
-                                    dragOrigin = localPosition
-                                    isDragging = true
+                // Title bar — hidden for browser (browser has its own integrated bar)
+                if window.app != .browser {
+                    HStack(spacing: 0) {
+                        Trinity(
+                            onClose: onClose,
+                            onMinimize: onMinimize,
+                            onZoom: onZoom
+                        )
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { onFocus() }
+                    .gesture(
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .onChanged { value in
+                                if !window.isMaximized {
+                                    if dragOrigin == nil {
+                                        dragOrigin = localPosition
+                                        isDragging = true
+                                    }
+                                    localPosition = CGPoint(
+                                        x: dragOrigin!.x + value.translation.width,
+                                        y: dragOrigin!.y + value.translation.height
+                                    )
                                 }
-                                localPosition = CGPoint(
-                                    x: dragOrigin!.x + value.translation.width,
-                                    y: dragOrigin!.y + value.translation.height
-                                )
                             }
-                        }
-                        .onEnded { _ in
-                            onDrag(localPosition)
-                            dragOrigin = nil
-                            isDragging = false
-                        }
-                )
+                            .onEnded { _ in
+                                onDrag(localPosition)
+                                dragOrigin = nil
+                                isDragging = false
+                            }
+                    )
+                }
 
-                // Content area — 不拦截事件，让 NavigationLink/Button/List 正常交互
-                AppHostView(app: window.app, contextPath: window.contextPath)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Content area
+                AppHostView(
+                    app: window.app,
+                    contextPath: window.contextPath,
+                    onClose: onClose,
+                    onMinimize: onMinimize,
+                    onZoom: onZoom,
+                    onFocus: onFocus,
+                    onDrag: onDrag,
+                    isMaximized: window.isMaximized,
+                    position: localPosition
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(width: winSize.width, height: winSize.height)
             .background(
