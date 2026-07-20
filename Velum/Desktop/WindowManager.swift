@@ -98,17 +98,21 @@ public struct AppWindow: Identifiable {
     public var size: CGSize
     /// Optional context path passed by Agent (e.g. "/etc" for Files to navigate to).
     public var contextPath: String?
+    /// 第三方 App id（非 nil 时窗口内容由 ThirdPartyAppHost 渲染，忽略 `app` 的内建分发）。
+    public var thirdPartyId: String?
 
     public init(
         app: VelumApp,
         position: CGPoint = CGPoint(x: 200, y: 150),
         size: CGSize = CGSize(width: 1000, height: 750),
-        contextPath: String? = nil
+        contextPath: String? = nil,
+        thirdPartyId: String? = nil
     ) {
         self.app = app
         self.position = position
         self.size = size
         self.contextPath = contextPath
+        self.thirdPartyId = thirdPartyId
     }
 }
 
@@ -240,6 +244,18 @@ public final class WindowManager: ObservableObject {
         withAnimation(WindowMotion.open) {
             windows.append(win)
             frontmostID = win.id
+        }
+        return win
+    }
+
+    /// 打开一个第三方 App 窗口（三种形态由 ThirdPartyAppHost 按 manifest 分发）。
+    @discardableResult
+    public func openThirdParty(id: String, contextPath: String? = nil) -> AppWindow {
+        // 用 .launcher 作占位（第三方 App 不属于内建枚举）；thirdPartyId 驱动实际内容。
+        var win = open(.launcher, contextPath: contextPath)
+        if let idx = windows.firstIndex(where: { $0.id == win.id }) {
+            windows[idx].thirdPartyId = id
+            win = windows[idx]
         }
         return win
     }

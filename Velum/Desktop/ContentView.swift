@@ -53,6 +53,8 @@ struct ContentView: View {
             }
             if kernel.state == .ready {
                 await firstBoot.runIfNeeded()
+                // 注入三种形态的演示第三方 App（幂等；首次会把 H5 演示包写进 fakefs）。
+                await AppRegistry.shared.seedDemosIfNeeded()
             }
         }
         // Shortcuts must not contribute size. Zero-frame overlay.
@@ -412,7 +414,8 @@ private struct DesktopWindow: View {
                     localPosition = WindowManager.clamp(position: newPos, size: localSize, in: bounds)
                 },
                 isMaximized: maximized,
-                position: maximized ? .zero : localPosition
+                position: maximized ? .zero : localPosition,
+                thirdPartyId: window.thirdPartyId
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .simultaneousGesture(TapGesture().onEnded { onFocus() })

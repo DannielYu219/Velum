@@ -19,6 +19,8 @@ struct AppHostView: View {
     var onDragChanged: (CGPoint) -> Void = { _ in }
     var isMaximized: Bool = false
     var position: CGPoint = .zero
+    /// 第三方 App id；非 nil 时渲染 ThirdPartyAppHost，忽略下方内建 switch。
+    var thirdPartyId: String? = nil
 
     init(
         app: VelumApp,
@@ -30,7 +32,8 @@ struct AppHostView: View {
         onDrag: @escaping (CGPoint) -> Void = { _ in },
         onDragChanged: @escaping (CGPoint) -> Void = { _ in },
         isMaximized: Bool = false,
-        position: CGPoint = .zero
+        position: CGPoint = .zero,
+        thirdPartyId: String? = nil
     ) {
         self.app = app
         self.contextPath = contextPath
@@ -42,9 +45,20 @@ struct AppHostView: View {
         self.onDragChanged = onDragChanged
         self.isMaximized = isMaximized
         self.position = position
+        self.thirdPartyId = thirdPartyId
     }
 
     var body: some View {
+        // 第三方 App 优先：按 manifest.form 分发到三种形态视图。
+        if let thirdPartyId {
+            ThirdPartyAppHost(appId: thirdPartyId)
+        } else {
+            builtInApp
+        }
+    }
+
+    @ViewBuilder
+    private var builtInApp: some View {
         switch app {
         case .launcher:
             EmptyView()
