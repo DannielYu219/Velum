@@ -140,14 +140,23 @@ public actor MCPServer {
 
     public func start() async throws {
         guard listener == nil else { return }
+        // Loopback-only bind. The MCP server exposes shell/file tools, so it must
+        // never be reachable from other devices on the LAN. Constraining the local
+        // endpoint to 127.0.0.1 keeps the listener strictly on-device; a bare
+        // `NWListener(on:)` would otherwise bind every interface (0.0.0.0).
         let params = NWParameters.tcp
-        let l = try NWListener(using: params, on: NWEndpoint.Port(integerLiteral: port))
+        params.requiredLocalEndpoint = NWEndpoint.hostPort(
+            host: "127.0.0.1",
+            port: NWEndpoint.Port(integerLiteral: port)
+        )
+        params.allowLocalEndpointReuse = true
+        let l = try NWListener(using: params)
         l.newConnectionHandler = { [weak self] conn in
             Task { await self?.handle(conn) }
         }
         l.start(queue: .global(qos: .utility))
         listener = l
-        print("[MCPServer] listening on 127.0.0.1:\(port)")
+        print("[MCPServer] listening on 127.0.0.1:\(port) (loopback only)")
     }
 
     public func stop() {

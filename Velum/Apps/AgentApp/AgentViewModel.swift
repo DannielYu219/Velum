@@ -252,6 +252,11 @@ final class AgentRuntime: @unchecked Sendable {
             systemPrompt += "\n\n" + customPrompt
         }
 
+        // 注入已安装 Skill 的能力指令（来自 Skill 商店）
+        if let skillPrompt = await MainActor.run { SkillRegistry.shared.composedSystemPrompt() } {
+            systemPrompt += "\n\n" + skillPrompt
+        }
+
         var messages: [Message] = [.system(systemPrompt)]
         messages.append(contentsOf: history)
         messages.append(.user(userInput))
@@ -416,6 +421,13 @@ final class AgentViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var sessionInputTokens: Int = 0
     @Published var sessionOutputTokens: Int = 0
+    @Published var sessionCostUSD: Double = 0
+
+    /// 预算熔断（金融级安全）— 使用单例共享
+    @Published var budgetGuard = BudgetGuard.shared
+    /// 预算超限提示（一次性弹窗）
+    @Published var showBudgetAlert: Bool = false
+    @Published var budgetAlertMessage: String = ""
 
     private let runtime = AgentRuntime()
     private var consumeTask: Task<Void, Never>?
@@ -459,12 +471,32 @@ final class AgentViewModel: ObservableObject {
         guard !text.isEmpty, !isStreaming else { return }
         guard let sessionId = currentSessionId else { return }
 
+        // 预算熔断检查（金融级安全：预估 $0.05 单次调用）
+        let estimate: Double = 0.05
+        if !budgetGuard.checkAndCharge(estimatedUSD: estimate) {
+            let period = budgetGuard.triggeredPeriod ?? .session
+            let msg: String
+            switch period {
+            case .session:
+                msg = "已达会话预算上限 $\(String(format: "%.2f", budgetGuard.limit.sessionUSD))"
+            case .daily:
+                msg = "已达日预算上限 $\(String(format: "%.2f", budgetGuard.limit.dailyUSD))"
+            case .monthly:
+                msg = "已达月预算上限 $\(String(format: "%.2f", budgetGuard.limit.monthlyUSD))"
+            }
+            budgetAlertMessage = msg
+            showBudgetAlert = true
+            DebugBus.shared.error("预算熔断：\(msg)")
+            return
+        }
+
         let userMsg = AgentMessage(role: "user", content: text)
         messages.append(userMsg)
         Task { await SessionStore.shared.appendMessage(
             PersistableMessage(id: userMsg.id.uuidString, role: "user", content: text), to: sessionId) }
         draft = ""
         errorMessage = nil
+        DebugBus.shared.cli("发送消息：\(text.prefix(100))")
 
         let assistantId = UUID()
         messages.append(AgentMessage(id: assistantId, role: "assistant", content: "", isStreaming: true))
@@ -472,6 +504,11 @@ final class AgentViewModel: ObservableObject {
         currentAssistantId = assistantId
 
         // 构建 history（排除当前 user 和 assistant 占位）
+        // 关键 OpenAI API 规则：
+        // 1. assistant 消息必须有 content 或 tool_calls（非空）
+        // 2. assistant 消息带 tool_calls 时，后面必须紧跟 tool 消息响应每个 tool_call_id
+        // 3. tool 消息必须有对应的 tool_call_id 且前面有带 tool_calls 的 assistant 消息
+        // 违反任何一条都会返回 400
         let rawHistory = messages.filter { $0.id != assistantId && $0.id != userMsg.id }.compactMap { msg -> Message? in
             if msg.content.isEmpty && msg.toolCallBody == nil && msg.toolCallId == nil { return nil }
             if msg.role == "tool" && msg.toolCallId == nil { return nil }
@@ -479,24 +516,69 @@ final class AgentViewModel: ObservableObject {
             var toolCalls: [ToolCall]? = nil
             if let body = msg.toolCallBody,
                let data = body.data(using: .utf8),
-               let decoded = try? JSONDecoder().decode([ToolCall].self, from: data) {
+               let decoded = try? JSONDecoder().decode([ToolCall].self, from: data),
+               !decoded.isEmpty {
                 toolCalls = decoded
             }
-            return Message(role: msg.role, content: msg.content.isEmpty ? nil : .text(msg.content),
+
+            // assistant 消息既没 content 也没 tool_calls → 跳过（避免 400 错误）
+            if msg.role == "assistant" && msg.content.isEmpty && toolCalls == nil { return nil }
+
+            // assistant 消息带 tool_calls 时，content 可以为空字符串但不能为 nil
+            let content: MessageContent?
+            if msg.role == "assistant" {
+                content = .text(msg.content)
+            } else {
+                content = msg.content.isEmpty ? nil : .text(msg.content)
+            }
+            return Message(role: msg.role, content: content,
                           toolCalls: toolCalls, toolCallId: msg.toolCallId, name: msg.name)
         }
 
-        // 修复孤立 tool_calls（DeepSeek 严格性）
+        // 严格配对检查：确保每个 tool_calls 都有完整的 tool 消息响应
+        // 场景：中断后 assistant 有 2 个 tool_calls 但只有 1 个 tool 消息 → 移除 tool_calls 降级
         var history: [Message] = []
-        for (i, msg) in rawHistory.enumerated() {
-            if msg.role == "assistant", msg.toolCalls != nil {
-                let nextIsTool = i + 1 < rawHistory.count && rawHistory[i + 1].role == "tool"
-                if !nextIsTool {
-                    history.append(Message(role: "assistant", content: msg.content, toolCalls: nil))
-                    continue
+        var idx = 0
+        while idx < rawHistory.count {
+            let msg = rawHistory[idx]
+
+            if msg.role == "assistant", let toolCalls = msg.toolCalls, !toolCalls.isEmpty {
+                // 收集所有期望的 tool_call_id
+                let expectedIds = Set(toolCalls.map { $0.id })
+
+                // 向后扫描连续的 tool 消息
+                var toolMessages: [Message] = []
+                var j = idx + 1
+                while j < rawHistory.count && rawHistory[j].role == "tool" {
+                    toolMessages.append(rawHistory[j])
+                    j += 1
                 }
+
+                // 检查每个 tool_call_id 是否都有对应 tool 消息
+                let foundIds = Set(toolMessages.compactMap { $0.toolCallId })
+                let allResponded = expectedIds == foundIds && toolMessages.count == expectedIds.count
+
+                if allResponded {
+                    // 完全配对：assistant + 所有 tool 消息
+                    history.append(msg)
+                    history.append(contentsOf: toolMessages)
+                    idx = j
+                } else {
+                    // 配对不完整：移除 tool_calls 降级为普通 assistant 消息
+                    // 如果 content 为空则整条消息跳过（避免 400）
+                    if case .text(let text) = msg.content, !text.isEmpty {
+                        history.append(Message(role: "assistant", content: msg.content, toolCalls: nil))
+                    }
+                    // 跳过这条 assistant 和后续孤立的 tool 消息
+                    idx = j
+                }
+            } else if msg.role == "tool" {
+                // 孤立的 tool 消息（前面没有配对的 assistant tool_calls）：跳过
+                idx += 1
+            } else {
+                history.append(msg)
+                idx += 1
             }
-            history.append(msg)
         }
 
         guard let provider = AgentConfig.shared.makeProvider() else {
@@ -544,7 +626,7 @@ final class AgentViewModel: ObservableObject {
                   let idx = messages.firstIndex(where: { $0.id == id }) else { return }
             messages[idx].content.append(text)
 
-        case .toolCallStarted:
+        case .toolCallStarted(let name):
             // 不再输出"🔧 正在调用工具"提示消息，只关闭 streaming 占位
             if let id = currentAssistantId,
                let idx = messages.firstIndex(where: { $0.id == id }) {
@@ -553,6 +635,7 @@ final class AgentViewModel: ObservableObject {
                     messages.remove(at: idx)
                 }
             }
+            DebugBus.shared.cli("⚙ 工具调用开始：\(name)")
 
         case .assistantMessage(let msg):
             if let tcs = msg.toolCalls, !tcs.isEmpty {
@@ -577,6 +660,8 @@ final class AgentViewModel: ObservableObject {
                         PersistableMessage(id: toolMsg.id.uuidString, role: "assistant",
                                           content: "", toolCallBody: body), to: sid) }
                 }
+                let names = tcs.map { $0.function.name }.joined(separator: ", ")
+                DebugBus.shared.cli("⚙ 工具调用：\(names)")
             }
 
         case .toolMessage(let msg):
@@ -592,6 +677,17 @@ final class AgentViewModel: ObservableObject {
                     PersistableMessage(id: toolMsg.id.uuidString, role: "tool",
                                       content: toolMsg.content, toolCallId: msg.toolCallId, name: msg.name), to: sid) }
             }
+            // Debug：工具调用详情（含 args + result）
+            var argsForDebug = ""
+            if let tid = msg.toolCallId,
+               let lastAssistant = messages.last(where: { $0.role == "assistant" && $0.toolCallBody != nil }),
+               let data = lastAssistant.toolCallBody?.data(using: .utf8),
+               let calls = try? JSONDecoder().decode([ToolCall].self, from: data) {
+                if let match = calls.first(where: { $0.id == tid }) {
+                    argsForDebug = match.function.arguments
+                }
+            }
+            DebugBus.shared.tool(msg.name ?? "?", args: argsForDebug, result: msg.content?.textValue ?? "")
             let placeholder = AgentMessage(role: "assistant", content: "", isStreaming: true)
             messages.append(placeholder)
             currentAssistantId = placeholder.id
@@ -599,9 +695,24 @@ final class AgentViewModel: ObservableObject {
         case .usage(let prompt, let completion):
             sessionInputTokens += prompt
             sessionOutputTokens += completion
+            // 照抄 Visor：用 ModelPricingTable 计算单次成本并累加
+            let modelId = AgentConfig.shared.effectiveModelId
+            let cost = ModelPricingTable.shared.costUSD(
+                modelId: modelId, inputTokens: prompt, outputTokens: completion
+            )
+            sessionCostUSD += cost
+            // 写入当前 streaming 的 assistant 消息
+            if let id = currentAssistantId,
+               let idx = messages.firstIndex(where: { $0.id == id }) {
+                messages[idx].costUSD += cost
+            }
+            // 实际结算预算（校正预估差额）
+            budgetGuard.settle(actualUSD: cost, estimatedUSD: 0.05)
+            DebugBus.shared.token(modelId, prompt: prompt, completion: completion, costUSD: cost)
 
         case .error(let msg):
             errorMessage = msg
+            DebugBus.shared.error(msg)
 
         case .completed:
             break

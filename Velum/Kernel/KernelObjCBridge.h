@@ -19,13 +19,17 @@ typedef NS_ENUM(NSInteger, VLMKernelState) {
     VLMKernelStateFailed   = 3,
 };
 
+/// Posted on the main queue whenever the boot state changes, so the Swift
+/// `Kernel` observer can refresh without a polling timer.
+extern NSString *const VLMKernelStateDidChangeNotification;
+
 /// Pure Obj-C facade over the iSH boot path. Swift talks to this through the
 /// bridging header; it never calls iSH C symbols directly.
 ///
 /// Lifecycle:
 ///   1. AppDelegate calls `+sharedInstance` and `setPendingBoot` at willFinishLaunching start
 ///   2. AppDelegate calls `recordBootSuccess` / `recordBootFailure:` when `-boot` returns
-///   3. Swift `Kernel` singleton polls `currentState` / `bootError`
+///   3. Swift `Kernel` observes `VLMKernelStateDidChangeNotification`, then reads `currentState` / `bootError`
 @interface KernelObjCBridge : NSObject
 
 + (instancetype)sharedInstance;
@@ -39,7 +43,7 @@ typedef NS_ENUM(NSInteger, VLMKernelState) {
 /// Called by AppDelegate when `-boot` returned non-zero (error).
 - (void)recordBootFailure:(NSError *)error;
 
-/// Polled by Swift `Kernel`.
+/// Read by Swift `Kernel` after a state-change notification.
 @property (nonatomic, readonly) VLMKernelState currentState;
 
 /// Non-nil if `currentState == VLMKernelStateFailed`.

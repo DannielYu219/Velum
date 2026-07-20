@@ -16,6 +16,7 @@ struct AppHostView: View {
     var onZoom: () -> Void = {}
     var onFocus: () -> Void = {}
     var onDrag: (CGPoint) -> Void = { _ in }
+    var onDragChanged: (CGPoint) -> Void = { _ in }
     var isMaximized: Bool = false
     var position: CGPoint = .zero
 
@@ -27,6 +28,7 @@ struct AppHostView: View {
         onZoom: @escaping () -> Void = {},
         onFocus: @escaping () -> Void = {},
         onDrag: @escaping (CGPoint) -> Void = { _ in },
+        onDragChanged: @escaping (CGPoint) -> Void = { _ in },
         isMaximized: Bool = false,
         position: CGPoint = .zero
     ) {
@@ -37,6 +39,7 @@ struct AppHostView: View {
         self.onZoom = onZoom
         self.onFocus = onFocus
         self.onDrag = onDrag
+        self.onDragChanged = onDragChanged
         self.isMaximized = isMaximized
         self.position = position
     }
@@ -56,6 +59,7 @@ struct AppHostView: View {
                 onZoom: onZoom,
                 onFocus: onFocus,
                 onDrag: onDrag,
+                onDragChanged: onDragChanged,
                 isMaximized: isMaximized,
                 position: position
             )
@@ -65,6 +69,23 @@ struct AppHostView: View {
             AboutAppView()
         case .agent:
             AgentView()
+        case .skillstore:
+            SkillStoreView()
+        case .previewer:
+            PreviewerView(
+                onClose: onClose,
+                onMinimize: onMinimize,
+                onZoom: onZoom,
+                onFocus: onFocus,
+                onDrag: onDrag,
+                onDragChanged: onDragChanged,
+                isMaximized: isMaximized,
+                position: position,
+                initialPath: contextPath
+            )
+        case .viewer:
+            // 专用文件查看窗口：无侧边栏、无地址栏，仅显示文件内容
+            FileViewerView(path: contextPath ?? "")
         }
     }
 }
@@ -87,47 +108,9 @@ private struct PlaceholderAppView: View {
 }
 
 /// About app — shown when the user opens "About" from the dock/launcher.
+/// 内容与 Settings 的"关于"页共用 `AboutContentView`（见 WindowChrome.swift）。
 private struct AboutAppView: View {
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                Image(systemName: "terminal.fill")
-                    .font(.system(size: 72))
-                    .foregroundStyle(.tint)
-
-                Text("Velum")
-                    .font(.largeTitle.bold())
-
-                Text("iOS 上的 Linux 桌面环境")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    infoRow("版本", "1.0 (Phase 7)")
-                    infoRow("内核", "iSH ARM64")
-                    infoRow("桌面", "SwiftUI + Liquid Glass")
-                    infoRow("兼容", "iOS 16+")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
-
-                Text("基于 iSH 开源项目，以 SwiftUI 重新构想的 iOS Linux 桌面。")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
-            .padding()
-        }
-        .background(Color.clear)
-    }
-
-    private func infoRow(_ key: String, _ value: String) -> some View {
-        HStack {
-            Text(key)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Text(value)
-        }
+        AboutContentView()
     }
 }

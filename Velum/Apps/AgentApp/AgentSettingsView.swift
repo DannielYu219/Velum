@@ -10,12 +10,26 @@ import SwiftUI
 
 struct AgentSettingsView: View {
     @ObservedObject private var config = AgentConfig.shared
+    @ObservedObject private var budgetGuard = BudgetGuard.shared
     @State private var apiKeyInput: String = ""
     @State private var showAPIKey: Bool = false
     @State private var keySaved: Bool = false
     @State private var customProviders: [CustomProviderConfig] = []
     @State private var editingTarget: ProviderEditTarget?
-    @State private var showModelPicker: Bool = false
+    /// 当前要呈现的 sheet（用 item 单 sheet 避免同视图多 .sheet 冲突）
+    private enum ActiveSheet: Identifiable {
+        case modelPicker
+        var id: String {
+            switch self {
+            case .modelPicker: return "modelPicker"
+            }
+        }
+    }
+    @State private var activeSheet: ActiveSheet?
+    // 预算编辑缓存
+    @State private var sessionLimitInput: String = ""
+    @State private var dailyLimitInput: String = ""
+    @State private var monthlyLimitInput: String = ""
     @Environment(\.dismiss) private var dismiss
 
     // Sheet 编辑目标
@@ -31,6 +45,7 @@ struct AgentSettingsView: View {
                 openRouterKeySection
                 systemPromptSection
                 customProviderSection
+                budgetSection
                 dangerSection
             }
             .listStyle(.insetGrouped)
@@ -56,6 +71,13 @@ struct AgentSettingsView: View {
                 )
             }
         }
+        // 单个 sheet(item:) 避免同视图多 .sheet 冲突导致 sheet 立即被 dismiss
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .modelPicker:
+                ModelPickerSheet(selectedModelId: $config.model)
+            }
+        }
     }
 
     // MARK: - 模型选择
@@ -63,11 +85,11 @@ struct AgentSettingsView: View {
     private var modelSection: some View {
         Section {
             Button {
-                showModelPicker = true
+                activeSheet = .modelPicker
             } label: {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("当前模型")
+                        Text("云端模型")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Text(config.modelDisplayName)
@@ -87,9 +109,6 @@ struct AgentSettingsView: View {
                 .font(.caption)
         }
         .listRowBackground(Color.clear)
-        .sheet(isPresented: $showModelPicker) {
-            ModelPickerSheet(selectedModelId: $config.model)
-        }
     }
 
     // MARK: - OpenRouter API Key
@@ -228,6 +247,96 @@ struct AgentSettingsView: View {
                     .foregroundStyle(.red)
             }
         }
+    }
+
+    // MARK: - Budget（预算熔断配置）
+
+    private var budgetSection: some View {
+        Section {
+            // 当前消耗
+            HStack {
+                Text("本会话")
+                Spacer()
+                Text("$\(String(format: "%.2f", budgetGuard.sessionSpent)) / $\(String(format: "%.2f", budgetGuard.limit.sessionUSD))")
+                    .monospacedDigit()
+                    .foregroundStyle(budgetGuard.isWarning(period: .session) ? .orange : .secondary)
+            }
+            HStack {
+                Text("今日")
+                Spacer()
+                Text("$\(String(format: "%.2f", budgetGuard.dailySpent)) / $\(String(format: "%.2f", budgetGuard.limit.dailyUSD))")
+                    .monospacedDigit()
+                    .foregroundStyle(budgetGuard.isWarning(period: .daily) ? .orange : .secondary)
+            }
+            HStack {
+                Text("本月")
+                Spacer()
+                Text("$\(String(format: "%.2f", budgetGuard.monthlySpent)) / $\(String(format: "%.2f", budgetGuard.limit.monthlyUSD))")
+                    .monospacedDigit()
+                    .foregroundStyle(budgetGuard.isWarning(period: .monthly) ? .orange : .secondary)
+            }
+
+            Divider()
+
+            // 上限编辑
+            HStack {
+                Text("会话上限")
+                Spacer()
+                TextField("5.0", text: $sessionLimitInput)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 80)
+                    .onAppear { sessionLimitInput = String(format: "%.2f", budgetGuard.limit.sessionUSD) }
+                Text("USD")
+                    .foregroundStyle(.secondary)
+            }
+            HStack {
+                Text("日上限")
+                Spacer()
+                TextField("20.0", text: $dailyLimitInput)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 80)
+                    .onAppear { dailyLimitInput = String(format: "%.2f", budgetGuard.limit.dailyUSD) }
+                Text("USD")
+                    .foregroundStyle(.secondary)
+            }
+            HStack {
+                Text("月上限")
+                Spacer()
+                TextField("200.0", text: $monthlyLimitInput)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 80)
+                    .onAppear { monthlyLimitInput = String(format: "%.2f", budgetGuard.limit.monthlyUSD) }
+                Text("USD")
+                    .foregroundStyle(.secondary)
+            }
+
+            Button("保存预算") { saveBudget() }
+                .frame(maxWidth: .infinity, alignment: .center)
+        } header: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("预算熔断")
+                Text("金融级安全：超过任一上限将自动停止调用 LLM")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .listRowBackground(Color.clear)
+    }
+
+    private func saveBudget() {
+        let session = Double(sessionLimitInput) ?? budgetGuard.limit.sessionUSD
+        let daily = Double(dailyLimitInput) ?? budgetGuard.limit.dailyUSD
+        let monthly = Double(monthlyLimitInput) ?? budgetGuard.limit.monthlyUSD
+        let newLimit = BudgetGuard.Limit(
+            sessionUSD: max(0.01, session),
+            dailyUSD: max(session, daily),
+            monthlyUSD: max(daily, monthly)
+        )
+        // BudgetGuard.shared 已是全局单例，AgentViewModel 也使用同一实例
+        budgetGuard.update(limit: newLimit)
     }
 
     // MARK: - Danger

@@ -21,3 +21,6 @@ e2e_out/
 
 # Legacy bench scripts (replaced by benchmark/)
 bench/
+
+# Xcode SwiftPM local state (user-specific)
+xcshareddata/swiftpm/

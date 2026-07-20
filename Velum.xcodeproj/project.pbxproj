@@ -358,6 +358,20 @@
 		VLM1000370000000000000037 /* ModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000370000000000000037 /* ModelCatalog.swift */; };
 		VLM1000380000000000000038 /* CustomProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000380000000000000038 /* CustomProvider.swift */; };
 		VLM1000390000000000000039 /* SessionSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000390000000000000039 /* SessionSidebarView.swift */; };
+		VLM1000400000000000000040 /* ModelPricing.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000400000000000000040 /* ModelPricing.swift */; };
+		VLM1000410000000000000041 /* DebugBus.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000410000000000000041 /* DebugBus.swift */; };
+		VLM1000420000000000000042 /* DebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000420000000000000042 /* DebugView.swift */; };
+		VLM1000430000000000000043 /* BudgetGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000430000000000000043 /* BudgetGuard.swift */; };
+		VLM1000440000000000000044 /* SkillCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000440000000000000044 /* SkillCatalog.swift */; };
+		VLM1000450000000000000045 /* SkillRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000450000000000000045 /* SkillRegistry.swift */; };
+		VLM1000460000000000000046 /* SkillStoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000460000000000000046 /* SkillStoreView.swift */; };
+		VLM1000470000000000000047 /* PreviewerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000470000000000000047 /* PreviewerViewModel.swift */; };
+		VLM1000480000000000000048 /* PreviewRendererView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000480000000000000048 /* PreviewRendererView.swift */; };
+		VLM1000490000000000000049 /* PreviewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000490000000000000049 /* PreviewerView.swift */; };
+		VLM1000500000000000000050 /* DesktopItemsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000500000000000000050 /* DesktopItemsManager.swift */; };
+		VLM1000510000000000000051 /* DesktopItemsLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000510000000000000051 /* DesktopItemsLayer.swift */; };
+		VLM1000520000000000000052 /* FileViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000520000000000000052 /* FileViewerView.swift */; };
+		VLM1000530000000000000053 /* WindowChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000530000000000000053 /* WindowChrome.swift */; };
 		VLM1000190000000000000019 /* ISHShellExecutor.m in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000190000000000000019 /* ISHShellExecutor.m */; };
 /* End PBXBuildFile section */
 
@@ -935,8 +949,22 @@
 		VLM0000370000000000000037 /* ModelCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelCatalog.swift; sourceTree = "<group>"; };
 		VLM0000380000000000000038 /* CustomProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomProvider.swift; sourceTree = "<group>"; };
 		VLM0000390000000000000039 /* SessionSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSidebarView.swift; sourceTree = "<group>"; };
+		VLM0000400000000000000040 /* ModelPricing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelPricing.swift; sourceTree = "<group>"; };
+		VLM0000410000000000000041 /* DebugBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugBus.swift; sourceTree = "<group>"; };
+		VLM0000420000000000000042 /* DebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugView.swift; sourceTree = "<group>"; };
+		VLM0000430000000000000043 /* BudgetGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BudgetGuard.swift; sourceTree = "<group>"; };
+		VLM0000440000000000000044 /* SkillCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillCatalog.swift; sourceTree = "<group>"; };
+		VLM0000450000000000000045 /* SkillRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillRegistry.swift; sourceTree = "<group>"; };
+		VLM0000460000000000000046 /* SkillStoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillStoreView.swift; sourceTree = "<group>"; };
+		VLM0000470000000000000047 /* PreviewerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewerViewModel.swift; sourceTree = "<group>"; };
+		VLM0000480000000000000048 /* PreviewRendererView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewRendererView.swift; sourceTree = "<group>"; };
+		VLM0000490000000000000049 /* PreviewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewerView.swift; sourceTree = "<group>"; };
 		VLM0000180000000000000018 /* ISHShellExecutor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ISHShellExecutor.h; sourceTree = "<group>"; };
 		VLM0000190000000000000019 /* ISHShellExecutor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ISHShellExecutor.m; sourceTree = "<group>"; };
+		VLM0000500000000000000050 /* DesktopItemsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopItemsManager.swift; sourceTree = "<group>"; };
+		VLM0000510000000000000051 /* DesktopItemsLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopItemsLayer.swift; sourceTree = "<group>"; };
+		VLM0000520000000000000052 /* FileViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileViewerView.swift; sourceTree = "<group>"; };
+		VLM0000530000000000000053 /* WindowChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chrome/WindowChrome.swift; sourceTree = "<group>"; };
 		VLM0000040000000000000004 /* Velum-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Velum-Bridging-Header.h"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -1323,6 +1351,9 @@
 				VLM0000130000000000000013 /* AppHostView.swift */,
 				VLM0000140000000000000014 /* WindowManager.swift */,
 				VLM0000220000000000000022 /* FirstBootSetup.swift */,
+				VLM0000500000000000000050 /* DesktopItemsManager.swift */,
+				VLM0000510000000000000051 /* DesktopItemsLayer.swift */,
+				VLM0000530000000000000053 /* WindowChrome.swift */,
 			);
 			path = Velum/Desktop;
 			sourceTree = SOURCE_ROOT;
@@ -1354,6 +1385,8 @@
 				VLM2000080000000000000009 /* BrowserApp */,
 				VLM2000060000000000000007 /* SettingsApp */,
 				VLM2000070000000000000008 /* AgentApp */,
+				VLM200009000000000000000A /* SkillStoreApp */,
+				VLM20000A000000000000000B /* PreviewerApp */,
 			);
 			path = Velum/Apps;
 			sourceTree = SOURCE_ROOT;
@@ -1386,6 +1419,10 @@
 				VLM0000370000000000000037 /* ModelCatalog.swift */,
 				VLM0000380000000000000038 /* CustomProvider.swift */,
 				VLM0000390000000000000039 /* SessionSidebarView.swift */,
+				VLM0000400000000000000040 /* ModelPricing.swift */,
+				VLM0000410000000000000041 /* DebugBus.swift */,
+				VLM0000420000000000000042 /* DebugView.swift */,
+				VLM0000430000000000000043 /* BudgetGuard.swift */,
 				VLM0000290000000000000029 /* LLMService.swift */,
 			);
 			path = Velum/Apps/AgentApp;
@@ -1397,6 +1434,27 @@
 				VLM0000270000000000000027 /* BrowserView.swift */,
 			);
 			path = Velum/Apps/BrowserApp;
+			sourceTree = SOURCE_ROOT;
+		};
+		VLM200009000000000000000A /* SkillStoreApp */ = {
+			isa = PBXGroup;
+			children = (
+				VLM0000440000000000000044 /* SkillCatalog.swift */,
+				VLM0000450000000000000045 /* SkillRegistry.swift */,
+				VLM0000460000000000000046 /* SkillStoreView.swift */,
+			);
+			path = Velum/Apps/SkillStoreApp;
+			sourceTree = SOURCE_ROOT;
+		};
+		VLM20000A000000000000000B /* PreviewerApp */ = {
+			isa = PBXGroup;
+			children = (
+				VLM0000470000000000000047 /* PreviewerViewModel.swift */,
+				VLM0000480000000000000048 /* PreviewRendererView.swift */,
+				VLM0000490000000000000049 /* PreviewerView.swift */,
+				VLM0000520000000000000052 /* FileViewerView.swift */,
+			);
+			path = Velum/Apps/PreviewerApp;
 			sourceTree = SOURCE_ROOT;
 		};
 		BB792B7D1F96E32B00FFB7A4 /* Frameworks */ = {
@@ -1789,6 +1847,8 @@
 			name = Velum;
 			productName = Velum;
 			productReference = AA0000021F96D90D00FFB7A4 /* Velum.app */;
+			packageProductDependencies = (
+			);
 			productType = "com.apple.product-type.application";
 		};
 		BB13F7DB200AD81D003D1C4D /* libish */ = {
@@ -2095,6 +2155,8 @@
 				},
 			);
 			projectRoot = "";
+			packageReferences = (
+			);
 			targets = (
 				BB792B4F1F96D90D00FFB7A4 /* iSH */,
 				AA0000011F96D90D00FFB7A4 /* Velum */,
@@ -2344,7 +2406,7 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(SRCROOT)/deps/hterm/dist/js/hterm_all.js",
+				"$(SRCROOT)/deps/libapps/hterm/dist/js/hterm_all.js",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -2444,7 +2506,7 @@
 			);
 			name = "Compile JavaScript";
 			outputPaths = (
-				"$(SRCROOT)/deps/hterm/dist/js/hterm_all.js",
+				"$(SRCROOT)/deps/libapps/hterm/dist/js/hterm_all.js",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = "/bin/sh -e";
@@ -2499,7 +2561,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "curl -L \"https://$ROOTFS_URL\" -o \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\n";
+			shellScript = "DEST=\"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\nif [ -f \"$DEST\" ]; then exit 0; fi\nmkdir -p \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH\"\ncurl -k -L --connect-timeout 30 --max-time 300 --retry 2 \"https://$ROOTFS_URL\" -o \"$DEST\" 2>/dev/null || cp /tmp/velum-rootfs/root.tar.gz \"$DEST\"\n";
 			showEnvVarsInLog = 0;
 		};
 		BBEF197A268066D1001225BD /* Generate APK Repositories File */ = {
@@ -2534,7 +2596,7 @@
 			);
 			name = "Compile JavaScript";
 			outputPaths = (
-				"$(SRCROOT)/deps/hterm/dist/js/hterm_all.js",
+				"$(SRCROOT)/deps/libapps/hterm/dist/js/hterm_all.js",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = "/bin/sh -e";
@@ -2554,7 +2616,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "curl -L \"https://$ROOTFS_URL\" -o \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\n";
+			shellScript = "DEST=\"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\nif [ -f \"$DEST\" ]; then exit 0; fi\nmkdir -p \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH\"\ncurl -k -L --connect-timeout 30 --max-time 300 --retry 2 \"https://$ROOTFS_URL\" -o \"$DEST\" 2>/dev/null || cp /tmp/velum-rootfs/root.tar.gz \"$DEST\"\n";
 			showEnvVarsInLog = 0;
 		};
 		BBFB2C572590257E00545EAB /* ShellScript */ = {
@@ -2739,6 +2801,20 @@
 				VLM1000370000000000000037 /* ModelCatalog.swift in Sources */,
 				VLM1000380000000000000038 /* CustomProvider.swift in Sources */,
 				VLM1000390000000000000039 /* SessionSidebarView.swift in Sources */,
+				VLM1000400000000000000040 /* ModelPricing.swift in Sources */,
+				VLM1000410000000000000041 /* DebugBus.swift in Sources */,
+				VLM1000420000000000000042 /* DebugView.swift in Sources */,
+				VLM1000430000000000000043 /* BudgetGuard.swift in Sources */,
+				VLM1000440000000000000044 /* SkillCatalog.swift in Sources */,
+				VLM1000450000000000000045 /* SkillRegistry.swift in Sources */,
+				VLM1000460000000000000046 /* SkillStoreView.swift in Sources */,
+				VLM1000470000000000000047 /* PreviewerViewModel.swift in Sources */,
+				VLM1000480000000000000048 /* PreviewRendererView.swift in Sources */,
+				VLM1000490000000000000049 /* PreviewerView.swift in Sources */,
+				VLM1000500000000000000050 /* DesktopItemsManager.swift in Sources */,
+				VLM1000510000000000000051 /* DesktopItemsLayer.swift in Sources */,
+				VLM1000520000000000000052 /* FileViewerView.swift in Sources */,
+				VLM1000530000000000000053 /* WindowChrome.swift in Sources */,
 				VLM1000190000000000000019 /* ISHShellExecutor.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

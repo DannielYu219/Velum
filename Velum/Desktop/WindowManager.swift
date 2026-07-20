@@ -10,6 +10,18 @@
 
 import SwiftUI
 
+// MARK: - Motion tokens
+
+/// 全桌面统一的动效令牌。
+enum WindowMotion {
+    static let open = Animation.spring(response: 0.5, dampingFraction: 0.75)
+    static let launcher = Animation.spring(response: 0.35, dampingFraction: 0.8)
+    static let close = Animation.easeInOut(duration: 0.25)
+    static let minimize = Animation.spring(response: 0.45, dampingFraction: 0.8)
+    static let maximize = Animation.spring(response: 0.35, dampingFraction: 0.8)
+    static let micro = Animation.easeInOut(duration: 0.2)
+}
+
 /// Identifiers for the built-in apps that can be launched from the dock/launcher.
 public enum VelumApp: String, CaseIterable, Identifiable {
     case launcher
@@ -19,6 +31,9 @@ public enum VelumApp: String, CaseIterable, Identifiable {
     case settings
     case about
     case agent
+    case skillstore
+    case previewer
+    case viewer
 
     public var id: String { rawValue }
 
@@ -34,6 +49,9 @@ public enum VelumApp: String, CaseIterable, Identifiable {
         case .settings:  return "Settings"
         case .about:     return "About"
         case .agent:     return "Agent"
+        case .skillstore: return "Skills"
+        case .previewer: return "Previewer"
+        case .viewer:    return "Viewer"
         }
     }
 
@@ -46,6 +64,9 @@ public enum VelumApp: String, CaseIterable, Identifiable {
         case .settings:  return "gearshape.fill"
         case .about:     return "info.circle.fill"
         case .agent:     return "bubble.left.and.text.bubble.right.fill"
+        case .skillstore: return "sparkles.rectangle.stack.fill"
+        case .previewer: return "eye.fill"
+        case .viewer:    return "doc.text.fill"
         }
     }
 
@@ -58,6 +79,9 @@ public enum VelumApp: String, CaseIterable, Identifiable {
         case .settings:  return ","
         case .about:     return "i"
         case .agent:     return "a"
+        case .skillstore: return "k"
+        case .previewer: return "p"
+        case .viewer:    return nil
         }
     }
 }
@@ -101,19 +125,119 @@ public final class WindowManager: ObservableObject {
 
     private init() {}
 
+    // MARK: Screen / Bounds helpers
+
+    /// 与 SwiftUI 桌面根 GeometryReader 同步的画布尺寸。
+    /// ContentView 在布局变化时调用 updateCanvasSize；clamp 一律以它为准。
+    @Published public private(set) var canvasSize: CGSize = WindowManager.fallbackScreenSize
+
+    private static var fallbackScreenSize: CGSize {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first
+        if let scene,
+           let window = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first {
+            return window.bounds.size
+        }
+        return UIScreen.main.bounds.size
+    }
+
+    /// 桌面布局坐标系（与 ContentView 画布一致）。
+    public static var screenBounds: CGRect {
+        let size = WindowManager.shared.canvasSize
+        if size.width > 1, size.height > 1 {
+            return CGRect(origin: .zero, size: size)
+        }
+        return CGRect(origin: .zero, size: fallbackScreenSize)
+    }
+
+    /// 最小窗口尺寸；小屏时会自动收缩到不超过画布。
+    public static let minimumWindowSize = CGSize(width: 320, height: 240)
+
+    /// 将尺寸严格限制在画布内（完整可见，不允许超出屏幕）。
+    public static func clamp(size: CGSize, in bounds: CGRect) -> CGSize {
+        let maxW = max(1, bounds.width)
+        let maxH = max(1, bounds.height)
+        let minW = min(minimumWindowSize.width, maxW)
+        let minH = min(minimumWindowSize.height, maxH)
+        return CGSize(
+            width: min(max(size.width, minW), maxW),
+            height: min(max(size.height, minH), maxH)
+        )
+    }
+
+    /// 将尺寸严格限制在当前桌面画布内。
+    public static func clamp(size: CGSize) -> CGSize {
+        clamp(size: size, in: screenBounds)
+    }
+
+    /// 将左上角位置限制为：窗口矩形完整落在 bounds 内。
+    public static func clamp(position: CGPoint, size: CGSize, in bounds: CGRect) -> CGPoint {
+        let fitted = clamp(size: size, in: bounds)
+        let maxX = max(bounds.minX, bounds.maxX - fitted.width)
+        let maxY = max(bounds.minY, bounds.maxY - fitted.height)
+        let x = min(max(position.x, bounds.minX), maxX)
+        let y = min(max(position.y, bounds.minY), maxY)
+        return CGPoint(x: x, y: y)
+    }
+
+    /// 将左上角位置限制为：窗口矩形完整落在当前桌面画布内。
+    public static func clamp(position: CGPoint, size: CGSize) -> CGPoint {
+        clamp(position: position, size: size, in: screenBounds)
+    }
+
+    /// ContentView 在画布几何变化时同步；会把已有窗口重新夹回屏幕。
+    public func updateCanvasSize(_ size: CGSize) {
+        // Canvas size is purely whatever SwiftUI GeometryReader measured.
+        guard size.width.isFinite, size.height.isFinite else { return }
+        guard size.width > 1, size.height > 1 else { return }
+        // Reject pathological infinity-like values from bad layout parents
+        guard size.width < 100_000, size.height < 100_000 else { return }
+        let rounded = CGSize(
+            width: size.width.rounded(.towardZero),
+            height: size.height.rounded(.towardZero)
+        )
+        guard rounded != canvasSize else { return }
+        canvasSize = rounded
+        reclampAllWindows()
+    }
+
+    /// 保证所有非最大化窗口完全在画布内（最大化忽略 position/size）。
+    private func reclampAllWindows() {
+        let bounds = Self.screenBounds
+        for i in windows.indices {
+            let fitted = Self.clamp(size: windows[i].size, in: bounds)
+            windows[i].size = fitted
+            windows[i].position = Self.clamp(position: windows[i].position, size: fitted, in: bounds)
+        }
+    }
+
     // MARK: Open / Close
 
     @discardableResult
     public func open(_ app: VelumApp, contextPath: String? = nil) -> AppWindow {
-        // Multi-instance: always create a new window, cascade position.
-        let offset = windows.count * 30
+        // 居中放置，多窗口时略微 cascade 偏移；矩形必须完整落在画布内。
+        let screen = Self.screenBounds
+        let preferred = CGSize(
+            width: min(1000, screen.width * 0.86),
+            height: min(750, screen.height * 0.78)
+        )
+        let baseSize = Self.clamp(size: preferred, in: screen)
+        let cascade = CGFloat(windows.count * 28)
+        let desiredX = max(0, (screen.width - baseSize.width) / 2 + cascade)
+        let desiredY = max(0, (screen.height - baseSize.height) / 2 + cascade)
+        let pos = Self.clamp(
+            position: CGPoint(x: desiredX, y: desiredY),
+            size: baseSize,
+            in: screen
+        )
         let win = AppWindow(
             app: app,
-            position: CGPoint(x: 200 + offset, y: 150 + offset),
+            position: pos,
+            size: baseSize,
             contextPath: contextPath
         )
         // 弹性弹出动画（从 Dock 位置放大）
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.75)) {
+        withAnimation(WindowMotion.open) {
             windows.append(win)
             frontmostID = win.id
         }
@@ -122,7 +246,7 @@ public final class WindowManager: ObservableObject {
 
     public func close(_ id: UUID) {
         // 快速缩小淡出
-        withAnimation(.easeInOut(duration: 0.25)) {
+        withAnimation(WindowMotion.close) {
             windows.removeAll { $0.id == id }
             if frontmostID == id {
                 frontmostID = windows.last?.id
@@ -146,7 +270,7 @@ public final class WindowManager: ObservableObject {
 
     public func toggleMinimize(_ id: UUID) {
         guard let idx = windows.firstIndex(where: { $0.id == id }) else { return }
-        withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+        withAnimation(WindowMotion.minimize) {
             windows[idx].isMinimized.toggle()
             // If we just minimized the frontmost, switch focus to the next visible window.
             if windows[idx].isMinimized && frontmostID == id {
@@ -158,7 +282,7 @@ public final class WindowManager: ObservableObject {
     /// 恢复某 app 最新的最小化窗口（从 dock 图标点击恢复）。
     public func restore(_ app: VelumApp) {
         guard let idx = windows.firstIndex(where: { $0.app == app && $0.isMinimized }) else { return }
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.75)) {
+        withAnimation(WindowMotion.open) {
             windows[idx].isMinimized = false
             // 移到顶层（ZStack 末尾）并聚焦
             let win = windows.remove(at: idx)
@@ -174,7 +298,7 @@ public final class WindowManager: ObservableObject {
 
     public func toggleMaximize(_ id: UUID) {
         guard let idx = windows.firstIndex(where: { $0.id == id }) else { return }
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(WindowMotion.maximize) {
             windows[idx].isMaximized.toggle()
         }
     }
@@ -183,12 +307,16 @@ public final class WindowManager: ObservableObject {
 
     public func updatePosition(_ id: UUID, position: CGPoint) {
         guard let idx = windows.firstIndex(where: { $0.id == id }) else { return }
-        windows[idx].position = position
+        let size = windows[idx].size
+        windows[idx].position = Self.clamp(position: position, size: size)
     }
 
     public func updateSize(_ id: UUID, size: CGSize) {
         guard let idx = windows.firstIndex(where: { $0.id == id }) else { return }
-        windows[idx].size = size
+        let fitted = Self.clamp(size: size)
+        windows[idx].size = fitted
+        // 放大到右/下边界外时，回推左上角，保证完整仍在屏幕内
+        windows[idx].position = Self.clamp(position: windows[idx].position, size: fitted)
     }
 
     // MARK: Convenience

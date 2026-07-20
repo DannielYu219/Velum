@@ -141,27 +141,6 @@ final class BrowserViewModel: ObservableObject {
     }
 }
 
-// MARK: - Browser Trinity Button
-
-private struct BrowserTrinityButton: View {
-    let tint: Color
-    let symbol: String
-    let action: () -> Void
-
-    var body: some View {
-        ZStack {
-            Image(systemName: symbol)
-                .imageScale(.large)
-                .symbolRenderingMode(.monochrome)
-                .font(.system(.footnote, weight: .black))
-                .foregroundStyle(tint)
-        }
-        .frame(width: 24, height: 24)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: action)
-    }
-}
-
 // MARK: - BrowserView
 
 struct BrowserView: View {
@@ -170,12 +149,14 @@ struct BrowserView: View {
     let onZoom: () -> Void
     let onFocus: () -> Void
     let onDrag: (CGPoint) -> Void
+    let onDragChanged: (CGPoint) -> Void
     let isMaximized: Bool
+    let position: CGPoint
 
     @StateObject private var vm = BrowserViewModel()
     @State private var showSettings: Bool = false
+    @State private var showHistory: Bool = false
     @State private var dragOrigin: CGPoint?
-    @State private var localPosition: CGPoint
 
     init(
         onClose: @escaping () -> Void = {},
@@ -183,6 +164,7 @@ struct BrowserView: View {
         onZoom: @escaping () -> Void = {},
         onFocus: @escaping () -> Void = {},
         onDrag: @escaping (CGPoint) -> Void = { _ in },
+        onDragChanged: @escaping (CGPoint) -> Void = { _ in },
         isMaximized: Bool = false,
         position: CGPoint = .zero
     ) {
@@ -191,8 +173,9 @@ struct BrowserView: View {
         self.onZoom = onZoom
         self.onFocus = onFocus
         self.onDrag = onDrag
+        self.onDragChanged = onDragChanged
         self.isMaximized = isMaximized
-        _localPosition = State(initialValue: position)
+        self.position = position
     }
 
     var body: some View {
@@ -208,109 +191,87 @@ struct BrowserView: View {
             BrowserSettingsSheet(vm: vm)
                 .presentationDetents([.medium])
         }
+        .sheet(isPresented: $showHistory) {
+            HistorySheet { url in
+                vm.selectedTab?.load(url)
+                vm.selectedTab?.addressText = url.absoluteString
+            }
+        }
     }
 
     // MARK: - Title Bar
 
     @ViewBuilder
     private var titleBar: some View {
-        HStack(spacing: 0) {
-            HStack(spacing: 0) {
-                BrowserTrinityButton(tint: .red, symbol: "xmark", action: onClose)
-                    .padding(.trailing, 4)
-                BrowserTrinityButton(tint: .yellow, symbol: "minus", action: onMinimize)
-                    .padding(.horizontal, 4)
-                BrowserTrinityButton(tint: .green, symbol: "square", action: onZoom)
-                    .padding(.leading, 4)
-            }
-            .padding(.trailing, 8)
+        GeometryReader { geo in
+            // 地址栏宽度:容器宽度的 60%,上限 460pt
+            let addrWidth = min(geo.size.width * 0.6, 460)
+            HStack(spacing: 10) {
+                // 统一红绿灯（与全局 DesktopWindow 一致）
+                WindowTrinity(onClose: onClose, onMinimize: onMinimize, onZoom: onZoom)
 
-            browserButton(systemName: "chevron.left",
-                          isEnabled: vm.selectedTab?.canGoBack ?? false) { vm.goBack() }
-            browserButton(systemName: "chevron.right",
-                          isEnabled: vm.selectedTab?.canGoForward ?? false) { vm.goForward() }
+                ChromeToolButton(systemName: "chevron.left",
+                                 isEnabled: vm.selectedTab?.canGoBack ?? false) { vm.goBack() }
+                ChromeToolButton(systemName: "chevron.right",
+                                 isEnabled: vm.selectedTab?.canGoForward ?? false) { vm.goForward() }
 
-            HStack(spacing: 6) {
-                Image(systemName: securityIcon)
-                    .imageScale(.small)
-                    .foregroundStyle(securityColor)
-                    .frame(width: 14)
+                // 可拖动空白区
+                Spacer(minLength: 8)
 
-                TextField("搜索或输入网址", text: Binding(
-                    get: { vm.selectedTab?.addressText ?? "" },
-                    set: { vm.selectedTab?.addressText = $0 }
-                ))
-                .textFieldStyle(.plain)
-                .font(.system(.body, design: .default))
-                .autocorrectionDisabled(true)
-                .textInputAutocapitalization(.never)
-                .submitLabel(.go)
-                .onSubmit { vm.loadIfNeeded() }
+                ChromeAddressField(
+                    placeholder: "搜索或输入网址",
+                    text: Binding(
+                        get: { vm.selectedTab?.addressText ?? "" },
+                        set: { vm.selectedTab?.addressText = $0 }
+                    ),
+                    leadingIcon: securityIcon,
+                    leadingIconColor: securityColor,
+                    onSubmit: { vm.loadIfNeeded() }
+                )
+                .frame(width: addrWidth)
 
-                if !(vm.selectedTab?.addressText ?? "").isEmpty {
-                    Button {
-                        vm.selectedTab?.addressText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .imageScale(.small)
-                            .foregroundStyle(.tertiary)
-                    }
-                    .buttonStyle(.plain)
+                // 可拖动空白区
+                Spacer(minLength: 8)
+
+                ChromeToolButton(systemName: "plus") { vm.addTab() }
+                ChromeToolButton(systemName: vm.selectedTab?.isLoading ?? false ? "xmark" : "arrow.clockwise") {
+                    if vm.selectedTab?.isLoading ?? false { vm.stopLoading() }
+                    else { vm.reload() }
                 }
+                ChromeToolButton(systemName: "clock.arrow.circlepath") { showHistory = true }
+                ChromeToolButton(systemName: "gearshape.fill") { showSettings = true }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 5)
-            .background(Color.white.opacity(0.08))
-            .clipShape(Capsule(style: .continuous))
-            .padding(.horizontal, 6)
-            .frame(minWidth: 120)
-
-            browserButton(systemName: "plus", isEnabled: true) { vm.addTab() }
-            browserButton(systemName: vm.selectedTab?.isLoading ?? false ? "xmark" : "arrow.clockwise",
-                          isEnabled: true) {
-                if vm.selectedTab?.isLoading ?? false { vm.stopLoading() }
-                else { vm.reload() }
-            }
-            browserButton(systemName: "gearshape.fill", isEnabled: true) { showSettings = true }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
-        .onTapGesture { onFocus() }
-        .gesture(
-            DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                .onChanged { value in
-                    if !isMaximized {
-                        if dragOrigin == nil {
-                            dragOrigin = localPosition
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+            .onTapGesture { onFocus() }
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { value in
+                        if !isMaximized {
+                            if dragOrigin == nil {
+                                dragOrigin = position
+                            }
+                            let newPos = CGPoint(
+                                x: dragOrigin!.x + value.translation.width,
+                                y: dragOrigin!.y + value.translation.height
+                            )
+                            onDragChanged(newPos)
                         }
-                        localPosition = CGPoint(
-                            x: dragOrigin!.x + value.translation.width,
-                            y: dragOrigin!.y + value.translation.height
-                        )
                     }
-                }
-                .onEnded { _ in
-                    onDrag(localPosition)
-                    dragOrigin = nil
-                }
-        )
-    }
-
-    @ViewBuilder
-    private func browserButton(
-        systemName: String,
-        isEnabled: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .imageScale(.medium)
-                .foregroundStyle(isEnabled ? Color.primary : Color.secondary.opacity(0.4))
-                .frame(width: 28, height: 28)
+                    .onEnded { value in
+                        if let origin = dragOrigin {
+                            let finalPos = CGPoint(
+                                x: origin.x + value.translation.width,
+                                y: origin.y + value.translation.height
+                            )
+                            onDrag(finalPos)
+                        }
+                        dragOrigin = nil
+                    }
+            )
         }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
+        .frame(height: 44)
     }
 
     private var securityIcon: String {
@@ -356,7 +317,7 @@ struct BrowserView: View {
     @ViewBuilder
     private var tabBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 2) {
+            HStack(spacing: 6) {
                 ForEach(Array(vm.tabs.enumerated()), id: \.element.id) { index, tab in
                     TabChip(
                         title: tabLabel(tab),
@@ -515,9 +476,7 @@ struct BrowserWebView: UIViewRepresentable {
         let preferences = WKPreferences()
         preferences.javaScriptEnabled = true
         preferences.javaScriptCanOpenWindowsAutomatically = true
-        if #available(iOS 14.5, *) {
-            preferences.isTextInteractionEnabled = true
-        }
+        preferences.isTextInteractionEnabled = true  // iOS 14.5+, always available at our 16.0 floor
         config.preferences = preferences
 
         if #available(iOS 16.4, *) {
@@ -650,6 +609,13 @@ struct BrowserWebView: UIViewRepresentable {
             decisionHandler(.allow)
         }
 
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            // 加载完成后记录历史
+            if let url = webView.url {
+                BrowserHistoryManager.shared.record(url: url, title: webView.title ?? "")
+            }
+        }
+
         func webView(
             _ webView: WKWebView,
             didReceive challenge: URLAuthenticationChallenge,
@@ -766,6 +732,156 @@ struct BrowserWebView: UIViewRepresentable {
                   var top = window.rootViewController else { return nil }
             while let presented = top.presentedViewController { top = presented }
             return top
+        }
+    }
+}
+
+// MARK: - Browser History Manager
+
+@MainActor
+final class BrowserHistoryManager: ObservableObject {
+    static let shared = BrowserHistoryManager()
+
+    struct Entry: Identifiable, Codable, Equatable {
+        let id: UUID
+        let url: String
+        var title: String
+        let host: String
+        let visitedAt: Date
+    }
+
+    @Published private(set) var entries: [Entry] = []
+
+    private let fileName = "browser_history.json"
+    private let maxEntries = 500
+
+    init() {
+        load()
+    }
+
+    func record(url: URL, title: String) {
+        guard url.scheme == "http" || url.scheme == "https" else { return }
+        let urlStr = url.absoluteString
+        // 去重:若最近一条与当前 URL 相同,仅更新标题
+        if let first = entries.first, first.url == urlStr {
+            if first.title != title && !title.isEmpty {
+                entries[0].title = title
+                save()
+            }
+            return
+        }
+        let entry = Entry(
+            id: UUID(),
+            url: urlStr,
+            title: title.isEmpty ? (url.host ?? urlStr) : title,
+            host: url.host ?? "",
+            visitedAt: Date()
+        )
+        entries.insert(entry, at: 0)
+        if entries.count > maxEntries {
+            entries.removeLast(entries.count - maxEntries)
+        }
+        save()
+    }
+
+    func remove(_ entry: Entry) {
+        entries.removeAll { $0.id == entry.id }
+        save()
+    }
+
+    func clear() {
+        entries.removeAll()
+        save()
+    }
+
+    // MARK: Persistence
+
+    private var fileURL: URL {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return dir.appendingPathComponent(fileName)
+    }
+
+    private func save() {
+        do {
+            let data = try JSONEncoder().encode(entries)
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            // 持久化失败静默忽略,不影响浏览
+        }
+    }
+
+    private func load() {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        do {
+            let data = try Data(contentsOf: fileURL)
+            entries = try JSONDecoder().decode([Entry].self, from: data)
+        } catch {
+            entries = []
+        }
+    }
+}
+
+// MARK: - History Sheet
+
+private struct HistorySheet: View {
+    @ObservedObject private var history = BrowserHistoryManager.shared
+    @Environment(\.dismiss) private var dismiss
+    let onSelect: (URL) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if history.entries.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 40))
+                            .foregroundStyle(.secondary)
+                        Text("暂无历史记录")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List {
+                        ForEach(history.entries) { entry in
+                            Button {
+                                if let url = URL(string: entry.url) {
+                                    onSelect(url)
+                                    dismiss()
+                                }
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(entry.title.isEmpty ? entry.host : entry.title)
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                    Text(entry.url)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .onDelete { idxSet in
+                            for i in idxSet { history.remove(history.entries[i]) }
+                        }
+                    }
+                    .listStyle(.insetGrouped)
+                    .scrollContentBackground(.hidden)
+                }
+            }
+            .background(Color.clear)
+            .navigationTitle("历史记录")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+                if !history.entries.isEmpty {
+                    ToolbarItem(placement: .destructiveAction) {
+                        Button("清空", role: .destructive) { history.clear() }
+                    }
+                }
+            }
         }
     }
 }

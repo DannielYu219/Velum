@@ -280,7 +280,14 @@ final class AgentConfig: ObservableObject {
     private init() {
         let defaults = UserDefaults.standard
         self.endpoint = defaults.string(forKey: "agent.endpoint") ?? "https://openrouter.ai/api/v1"
-        self.model = defaults.string(forKey: "agent.model") ?? "xiaomi/mimo-v2.5"
+        // 本地 MLX 模型功能已移除：如果残留 local:: 命名空间的 model id，重置为默认
+        let storedModel = defaults.string(forKey: "agent.model") ?? "xiaomi/mimo-v2.5"
+        if storedModel.hasPrefix("local::") {
+            self.model = "xiaomi/mimo-v2.5"
+            defaults.set("xiaomi/mimo-v2.5", forKey: "agent.model")
+        } else {
+            self.model = storedModel
+        }
         self.apiKey = AgentKeychain.get(account: "agent_api_key") ?? ""
         self.systemPrompt = defaults.string(forKey: "agent.systemPrompt") ?? ""
     }
@@ -465,6 +472,48 @@ final class OpenAICompatibleClient: ModelProvider, @unchecked Sendable {
                 d.usage = StreamDelta.Usage(promptTokens: p, completionTokens: c, totalTokens: u.total_tokens ?? (p + c))
             }
             return d
+        }
+    }
+}
+
+// MARK: - LocalModelCleanup（一次性清理已废弃的本地 MLX 模型文件）
+// MLX 本地模型功能已移除（中国大陆网络环境下 SPM 缓存无法建立），
+// 这里负责清理用户设备上残留的下载文件，释放存储空间。
+
+enum LocalModelCleanup {
+    /// 已废弃的本地模型存储根目录：Application Support/models/
+    private static var deprecatedModelsRoot: URL? {
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        return appSupport.appendingPathComponent("models", isDirectory: true)
+    }
+
+    /// 清理所有已下载的本地 MLX 模型文件。
+    /// 安全可重入：目录不存在时直接返回。
+    static func cleanUp() {
+        guard let root = deprecatedModelsRoot else { return }
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: root.path) else { return }
+
+        // 计算清理前的总大小（用于日志）
+        var totalBytes: Int64 = 0
+        if let enumerator = fm.enumerator(at: root, includingPropertiesForKeys: [.fileSizeKey]) {
+            for case let url as URL in enumerator {
+                if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize {
+                    totalBytes += Int64(size)
+                }
+            }
+        }
+
+        do {
+            try fm.removeItem(at: root)
+            let mb = Double(totalBytes) / 1024.0 / 1024.0
+            let msg = String(format: "[LocalModelCleanup] 已清理废弃的本地模型目录，释放 %.2f MB", mb)
+            os_log("%{public}@", log: OSLog.default, type: .info, msg)
+        } catch {
+            os_log("%{public}@", log: OSLog.default, type: .error,
+                   "[LocalModelCleanup] 清理本地模型目录失败：\(error.localizedDescription)")
         }
     }
 }

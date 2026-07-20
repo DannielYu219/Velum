@@ -22,17 +22,26 @@ static NSString *const TerminalUUID = @"TerminalUUID";
 @implementation SceneDelegate
 
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)connectionOptions {
+    // The scene is no longer pointed at Terminal.storyboard (see Info.plist), so
+    // UIKit does not auto-create the window — we create it here. The nil-guard also
+    // keeps this correct if a storyboard-backed window is ever reintroduced.
+    if (self.window == nil) {
+        self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *) scene];
+    }
+
     if ([NSUserDefaults.standardUserDefaults boolForKey:@"recovery"]) {
         UINavigationController *vc = [[UIStoryboard storyboardWithName:@"About" bundle:nil] instantiateInitialViewController];
         AboutViewController *avc = (AboutViewController *) vc.topViewController;
         avc.recoveryMode = YES;
         self.window.rootViewController = vc;
-        return;
+    } else {
+        // SwiftUI desktop owns all layout. Host is a thin UIHostingController only.
+        self.window.rootViewController = [VLMDesktopFactory makeRootViewController];
     }
 
-    // Phase 0.3: replace TerminalViewController with SwiftUI desktop.
-    self.window.rootViewController = [VLMDesktopFactory makeRootViewController];
+    [self.window makeKeyAndVisible];
 }
+
 
 - (NSUserActivity *)stateRestorationActivityForScene:(UIScene *)scene {
     // Phase 0.3: no terminal session to restore at scene level.

@@ -42,12 +42,12 @@ private struct LauncherIcon: View {
         } label: {
             VStack(spacing: 10) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .liquidGlass(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                        .frame(width: 72, height: 72)
+                    GlassSurface(.regular, in: Circle())
+                        .frame(width: 68, height: 68)
+                        .clipped()
                     Image(systemName: app.systemImage)
-                        .font(.title2)
-                        .foregroundStyle(.primary)
+                        .imageScale(.large)
+                        .font(.title)
                 }
                 Text(app.displayName)
                     .font(.caption)

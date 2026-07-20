@@ -32,7 +32,8 @@ struct Dock: View {
     @ObservedObject private var wm = WindowManager.shared
 
     /// Apps pinned to the dock.
-    private let pinned: [VelumApp] = VelumApp.allCases
+    /// `.viewer` 是瞬时的文件查看窗口，不作为 Dock 常驻入口。
+    private let pinned: [VelumApp] = VelumApp.allCases.filter { $0 != .viewer }
 
     /// Dynamic capsule width: iconCount × 76 + 8 (per design spec).
     private var capsuleWidth: CGFloat {
@@ -73,7 +74,7 @@ private struct DockIcon: View {
         Button {
             if app.isLauncher {
                 // Toggle launcher overlay directly — no VelumControl indirection.
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                withAnimation(WindowMotion.launcher) {
                     wm.showLauncher.toggle()
                 }
             } else if hasMinimized {

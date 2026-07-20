@@ -37,33 +37,40 @@ public final class Kernel: ObservableObject {
         return false
     }
 
-    private var pollTimer: Timer?
+    /// Token for the boot-state-change notification observer (replaces the old poll timer).
+    private var stateObserver: NSObjectProtocol?
 
     private init() {
-        // No-op construction. The poll loop is started by `startObserving()`,
+        // No-op construction. Observation is started by `startObserving()`,
         // which the SwiftUI app calls once the scene is up.
     }
 
     /// Begin mirroring the Obj-C bridge state into the Swift @Published state.
+    ///
+    /// The entire iSH boot runs synchronously inside `AppDelegate willFinishLaunching`
+    /// — i.e. *before* the scene (and this observer) exists — so a single initial read
+    /// captures the terminal state. The notification observer only covers later
+    /// transitions (e.g. a future `restart()`), replacing the previous 0.25s poll timer.
     /// Idempotent.
     public func startObserving() {
-        if pollTimer != nil { return }
+        if stateObserver != nil { return }
         // Initial sync read so the very first render is correct.
         mirrorBridgeState()
-        // Then poll every 0.25s — cheap, and avoids needing a GCD channel.
-        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.mirrorBridgeState()
-            }
+        stateObserver = NotificationCenter.default.addObserver(
+            forName: .VLMKernelStateDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor in self?.mirrorBridgeState() }
         }
-        RunLoop.main.add(timer, forMode: .common)
-        pollTimer = timer
     }
 
     /// Stop observing. Called on scene disconnect if needed.
     public func stopObserving() {
-        pollTimer?.invalidate()
-        pollTimer = nil
+        if let stateObserver {
+            NotificationCenter.default.removeObserver(stateObserver)
+        }
+        stateObserver = nil
     }
 
     /// Mirror the Obj-C bridge state into the Swift enum.

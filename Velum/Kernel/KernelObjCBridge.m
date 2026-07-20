@@ -9,6 +9,8 @@
 
 #import "KernelObjCBridge.h"
 
+NSString *const VLMKernelStateDidChangeNotification = @"VLMKernelStateDidChangeNotification";
+
 @implementation KernelObjCBridge {
     VLMKernelState _state;
     NSError *_error;
@@ -36,6 +38,7 @@
     @synchronized(self) {
         _state = VLMKernelStateBooting;
     }
+    [self postStateChange];
 }
 
 - (void)recordBootSuccess {
@@ -43,6 +46,7 @@
         _state = VLMKernelStateReady;
         _error = nil;
     }
+    [self postStateChange];
 }
 
 - (void)recordBootFailure:(NSError *)error {
@@ -50,6 +54,14 @@
         _state = VLMKernelStateFailed;
         _error = error;
     }
+    [self postStateChange];
+}
+
+- (void)postStateChange {
+    // Posted async on main so the SwiftUI Kernel observer refreshes off a clean stack.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [NSNotificationCenter.defaultCenter postNotificationName:VLMKernelStateDidChangeNotification object:nil];
+    });
 }
 
 - (VLMKernelState)currentState {

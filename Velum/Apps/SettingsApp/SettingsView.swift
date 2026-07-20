@@ -71,17 +71,20 @@ struct SettingsView: View {
                 } label: {
                     Label("恢复默认壁纸", systemImage: "arrow.counterclockwise")
                 }
+                .buttonStyle(.borderless)
             }
             Button {
                 showPhotoPicker = true
             } label: {
                 Label("从相册选取", systemImage: "photo.on.rectangle")
             }
+            .buttonStyle(.borderless)
             Button {
                 showFilePicker = true
             } label: {
                 Label("从文件选取", systemImage: "folder")
             }
+            .buttonStyle(.borderless)
         }
         .listRowBackground(Color.clear)
     }
@@ -380,6 +383,7 @@ private struct RootfsManagementView: View {
                 }
             }
             .disabled(manager.phase.isBusy)
+            .buttonStyle(.borderless)
             .listRowBackground(Color.clear)
 
             ForEach(RootfsManager.mirrorOptions.indices, id: \.self) { i in
@@ -397,6 +401,7 @@ private struct RootfsManagementView: View {
                     }
                 }
                 .disabled(manager.phase.isBusy)
+                .buttonStyle(.borderless)
                 .listRowBackground(Color.clear)
             }
         } header: {
@@ -419,6 +424,7 @@ private struct RootfsManagementView: View {
                          busy: manager.phase == .checkingUpdates)
             }
             .disabled(manager.phase.isBusy)
+            .buttonStyle(.borderless)
 
             if !manager.upgradablePackages.isEmpty {
                 Button {
@@ -429,6 +435,7 @@ private struct RootfsManagementView: View {
                              busy: manager.phase == .upgrading)
                 }
                 .disabled(manager.phase.isBusy)
+                .buttonStyle(.borderless)
 
                 ForEach(manager.upgradablePackages.indices, id: \.self) { i in
                     Text(manager.upgradablePackages[i])
@@ -467,6 +474,7 @@ private struct RootfsManagementView: View {
                          busy: manager.phase == .backingUp)
             }
             .disabled(manager.phase.isBusy)
+            .buttonStyle(.borderless)
         } header: {
             Text("备份")
         } footer: {
@@ -540,6 +548,7 @@ private struct RootfsManagementView: View {
                     manager.clearLog()
                 }
                 .disabled(manager.phase.isBusy)
+                .buttonStyle(.borderless)
             } header: {
                 Text("输出")
             }
@@ -577,49 +586,11 @@ private struct RootfsManagementView: View {
 
 // MARK: - About
 
+/// 内容与独立 About App 共用 `AboutContentView`（见 WindowChrome.swift）。
 private struct AboutView: View {
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                Image(systemName: "terminal.fill")
-                    .font(.system(size: 72))
-                    .foregroundStyle(.tint)
-
-                Text("Velum")
-                    .font(.largeTitle.bold())
-
-                Text("iOS 上的 Linux 桌面环境")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    infoRow("版本", "1.0 (Phase 7)")
-                    infoRow("内核", "iSH ARM64")
-                    infoRow("桌面", "SwiftUI + Liquid Glass")
-                    infoRow("兼容", "iOS 16+")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
-
-                Text("基于 iSH 开源项目，以 SwiftUI 重新构想的 iOS Linux 桌面。")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
-            .padding()
-        }
-        .background(Color.clear)
-        .navigationTitle("关于")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func infoRow(_ key: String, _ value: String) -> some View {
-        HStack {
-            Text(key)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Text(value)
-        }
+        AboutContentView()
+            .navigationTitle("关于")
+            .navigationBarTitleDisplayMode(.inline)
     }
 }

@@ -46,6 +46,7 @@ struct AgentView: View {
     @StateObject private var viewModel = AgentViewModel()
     @ObservedObject private var config = AgentConfig.shared
     @State private var showSettings = false
+    @State private var showDebug = false
     @State private var sidebarCollapsed: Bool = false
 
     var body: some View {
@@ -66,6 +67,9 @@ struct AgentView: View {
                 if let error = viewModel.errorMessage {
                     errorBanner(error)
                 }
+                if viewModel.budgetGuard.triggeredPeriod != nil {
+                    budgetWarningBanner
+                }
                 Divider().opacity(0.2)
                 chatPanel
                 ComposerBar(viewModel: viewModel)
@@ -81,6 +85,15 @@ struct AgentView: View {
         }
         .sheet(isPresented: $showSettings) {
             AgentSettingsView()
+        }
+        .sheet(isPresented: $showDebug) {
+            DebugView()
+        }
+        .alert("预算警告", isPresented: $viewModel.showBudgetAlert) {
+            Button("去设置") { showSettings = true }
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(viewModel.budgetAlertMessage)
         }
     }
 
@@ -111,12 +124,17 @@ struct AgentView: View {
                     Text("in \(viewModel.sessionInputTokens)")
                     Text("·")
                     Text("out \(viewModel.sessionOutputTokens)")
+                    if viewModel.sessionCostUSD > 0 {
+                        Text("·")
+                        Text(String(format: "$%.4f", viewModel.sessionCostUSD))
+                    }
                 }
                 .font(.system(size: AgentDesignTokens.FontSize.caption))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
             }
             Spacer()
+            DebugBadgeButton(showDebug: $showDebug)
             Button {
                 showSettings = true
             } label: {
@@ -132,6 +150,41 @@ struct AgentView: View {
         }
         .padding(.horizontal, AgentDesignTokens.Spacing.l)
         .padding(.vertical, AgentDesignTokens.Spacing.s)
+    }
+
+    // MARK: - Budget Warning Banner（预算熔断警告）
+
+    private var budgetWarningBanner: some View {
+        HStack(spacing: AgentDesignTokens.Spacing.s) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("预算已熔断")
+                    .font(.system(size: AgentDesignTokens.FontSize.caption, weight: .semibold))
+                if let period = viewModel.budgetGuard.triggeredPeriod {
+                    let pair = budgetPair(for: period)
+                    Text("\(period.rawValue) $\(String(format: "%.2f", pair.spent)) / $\(String(format: "%.2f", pair.limit))")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+            Spacer()
+            Button("调整预算") { showSettings = true }
+                .font(.system(size: AgentDesignTokens.FontSize.caption, weight: .medium))
+        }
+        .padding(.horizontal, AgentDesignTokens.Spacing.l)
+        .padding(.vertical, AgentDesignTokens.Spacing.s)
+        .background(Color.orange.opacity(0.1))
+    }
+
+    /// 预算周期对应的 (limit, spent)
+    private func budgetPair(for period: BudgetGuard.Period) -> (limit: Double, spent: Double) {
+        switch period {
+        case .session: return (viewModel.budgetGuard.limit.sessionUSD, viewModel.budgetGuard.sessionSpent)
+        case .daily: return (viewModel.budgetGuard.limit.dailyUSD, viewModel.budgetGuard.dailySpent)
+        case .monthly: return (viewModel.budgetGuard.limit.monthlyUSD, viewModel.budgetGuard.monthlySpent)
+        }
     }
 
     // MARK: - Chat Panel
