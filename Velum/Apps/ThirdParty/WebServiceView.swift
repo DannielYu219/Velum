@@ -66,7 +66,7 @@ struct WebServiceView: UIViewRepresentable {
                 // 后端服务进程（长驻）。consume 流以保持其运行；窗口关闭时 cancel。
                 // TODO(Phase A): 经 ISHBridge 暴露 pid，dismantle 时精确 kill；
                 //                端口由 Control Plane reservePort 统一分配。
-                let stream = ISHBridge.shared.executeStreaming(command)
+                let stream = await ISHBridge.shared.executeStreaming(command)
                 Task {
                     do {
                         for try await _ in stream { /* 保持后端运行 */ }
@@ -78,7 +78,7 @@ struct WebServiceView: UIViewRepresentable {
                 for _ in 0..<30 {
                     if Task.isCancelled { return }
                     if let u = URL(string: probe),
-                       let data = try? await URLSession.shared.data(from: u),
+                       let (data, _) = try? await URLSession.shared.data(from: u),
                        !data.isEmpty {
                         break
                     }

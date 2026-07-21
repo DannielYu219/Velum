@@ -22,9 +22,10 @@ struct H5PackageView: UIViewRepresentable {
         config.preferences = prefs
         config.mediaTypesRequiringUserActionForPlayback = []
         config.allowsInlineMediaPlayback = true
-        // 允许 H5 包访问同目录本地资源
-        config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
-        config.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
+
+        // 经自定义 scheme 从 fakefs 提供 H5 包资源（velumapp://app/<相对路径>）。
+        let schemeHandler = FakefsSchemeHandler(sandboxRoot: manifest.sandboxRoot)
+        config.setURLSchemeHandler(schemeHandler, forURLScheme: FakefsSchemeHandler.scheme)
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.isOpaque = false
@@ -35,12 +36,11 @@ struct H5PackageView: UIViewRepresentable {
         let bridge = VelumJSBridge(manifest: manifest)
         bridge.attach(to: webView)
         context.coordinator.bridge = bridge
+        context.coordinator.schemeHandler = schemeHandler
 
-        // 从 fakefs 加载入口文件
-        let root = URL(fileURLWithPath: manifest.sandboxRoot, isDirectory: true)
-        let entry = URL(fileURLWithPath: manifest.entryPath)
-        if FileManager.default.fileExists(atPath: manifest.entryPath) {
-            webView.loadFileURL(entry, allowingReadAccessTo: root)
+        // 从 fakefs 加载入口文件（经 ISHFsBridge 判断是否存在）。
+        if ISHFsBridge.sharedInstance().exists(manifest.entryPath) {
+            webView.load(URLRequest(url: FakefsSchemeHandler.entryURL(forEntry: manifest.runtime.entry)))
         } else {
             webView.loadHTMLString(Self.missingPage(manifest), baseURL: nil)
         }
@@ -54,6 +54,8 @@ struct H5PackageView: UIViewRepresentable {
     final class Coordinator {
         /// 持有桥，避免其作为 messageHandler 被提前释放。
         var bridge: VelumJSBridge?
+        /// 持有 scheme handler，确保其生命周期覆盖 webView。
+        var schemeHandler: FakefsSchemeHandler?
     }
 
     private static func missingPage(_ manifest: ThirdPartyAppManifest) -> String {

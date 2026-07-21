@@ -95,8 +95,10 @@ private struct ELFBridgeWebView: UIViewRepresentable {
         let prefs = WKPreferences()
         prefs.javaScriptEnabled = true
         config.preferences = prefs
-        config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
-        config.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
+
+        // 经自定义 scheme 从 fakefs 提供 H5 界面资源（velumapp://app/<相对路径>）。
+        let schemeHandler = FakefsSchemeHandler(sandboxRoot: manifest.sandboxRoot)
+        config.setURLSchemeHandler(schemeHandler, forURLScheme: FakefsSchemeHandler.scheme)
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.isOpaque = false
@@ -107,11 +109,10 @@ private struct ELFBridgeWebView: UIViewRepresentable {
         bridge.onCall = { [onCall] op, summary in onCall(op, summary) }
         bridge.attach(to: webView)
         context.coordinator.bridge = bridge
+        context.coordinator.schemeHandler = schemeHandler
 
-        let root = URL(fileURLWithPath: manifest.sandboxRoot, isDirectory: true)
-        let entry = URL(fileURLWithPath: manifest.entryPath)
-        if FileManager.default.fileExists(atPath: manifest.entryPath) {
-            webView.loadFileURL(entry, allowingReadAccessTo: root)
+        if ISHFsBridge.sharedInstance().exists(manifest.entryPath) {
+            webView.load(URLRequest(url: FakefsSchemeHandler.entryURL(forEntry: manifest.runtime.entry)))
         } else {
             webView.loadHTMLString(Self.missingPage(manifest), baseURL: nil)
         }
@@ -124,6 +125,7 @@ private struct ELFBridgeWebView: UIViewRepresentable {
 
     final class Coordinator {
         var bridge: VelumJSBridge?
+        var schemeHandler: FakefsSchemeHandler?
     }
 
     private static func missingPage(_ manifest: ThirdPartyAppManifest) -> String {

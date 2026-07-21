@@ -34,6 +34,7 @@ public enum VelumApp: String, CaseIterable, Identifiable {
     case skillstore
     case previewer
     case viewer
+    case installer
 
     public var id: String { rawValue }
 
@@ -52,6 +53,7 @@ public enum VelumApp: String, CaseIterable, Identifiable {
         case .skillstore: return "Skills"
         case .previewer: return "Previewer"
         case .viewer:    return "Viewer"
+        case .installer: return "Installer"
         }
     }
 
@@ -67,6 +69,7 @@ public enum VelumApp: String, CaseIterable, Identifiable {
         case .skillstore: return "sparkles.rectangle.stack.fill"
         case .previewer: return "eye.fill"
         case .viewer:    return "doc.text.fill"
+        case .installer: return "arrow.down.app.fill"
         }
     }
 
@@ -82,6 +85,7 @@ public enum VelumApp: String, CaseIterable, Identifiable {
         case .skillstore: return "k"
         case .previewer: return "p"
         case .viewer:    return nil
+        case .installer: return nil
         }
     }
 }

@@ -100,6 +100,8 @@ struct AppHostView: View {
         case .viewer:
             // 专用文件查看窗口：无侧边栏、无地址栏，仅显示文件内容
             FileViewerView(path: contextPath ?? "")
+        case .installer:
+            AppInstallerView()
         }
     }
 }

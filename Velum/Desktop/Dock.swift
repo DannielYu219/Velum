@@ -33,7 +33,8 @@ struct Dock: View {
 
     /// Apps pinned to the dock.
     /// `.viewer` 是瞬时的文件查看窗口，不作为 Dock 常驻入口。
-    private let pinned: [VelumApp] = VelumApp.allCases.filter { $0 != .viewer }
+    /// `.installer` 从启动台进入，不占 Dock 槽位。
+    private let pinned: [VelumApp] = VelumApp.allCases.filter { $0 != .viewer && $0 != .installer }
 
     /// Dynamic capsule width: iconCount × 76 + 8 (per design spec).
     private var capsuleWidth: CGFloat {

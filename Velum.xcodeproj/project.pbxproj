@@ -373,6 +373,18 @@
 		VLM1000520000000000000052 /* FileViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000520000000000000052 /* FileViewerView.swift */; };
 		VLM1000530000000000000053 /* WindowChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000530000000000000053 /* WindowChrome.swift */; };
 		VLM1000190000000000000019 /* ISHShellExecutor.m in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000190000000000000019 /* ISHShellExecutor.m */; };
+		VLM1000540000000000000054 /* AppForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000540000000000000054 /* AppForm.swift */; };
+		VLM1000550000000000000055 /* AppRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000550000000000000055 /* AppRegistry.swift */; };
+		VLM1000560000000000000056 /* ELFBridgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000560000000000000056 /* ELFBridgeView.swift */; };
+		VLM1000570000000000000057 /* H5PackageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000570000000000000057 /* H5PackageView.swift */; };
+		VLM1000580000000000000058 /* ThirdPartyAppHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000580000000000000058 /* ThirdPartyAppHost.swift */; };
+		VLM1000590000000000000059 /* ThirdPartyAppManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000590000000000000059 /* ThirdPartyAppManifest.swift */; };
+		VLM10005A000000000000005A /* VelumJSBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM00005A000000000000005A /* VelumJSBridge.swift */; };
+		VLM10005B000000000000005B /* WebServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM00005B000000000000005B /* WebServiceView.swift */; };
+		VLM10005C000000000000005C /* AppInstallerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM00005C000000000000005C /* AppInstallerView.swift */; };
+		VLM10005D000000000000005D /* AppInstallerSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM00005D000000000000005D /* AppInstallerSheets.swift */; };
+		VLM10005E000000000000005E /* VAPInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM00005E000000000000005E /* VAPInstaller.swift */; };
+		VLM10005F000000000000005F /* FakefsSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM00005F000000000000005F /* FakefsSchemeHandler.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -966,6 +978,18 @@
 		VLM0000520000000000000052 /* FileViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileViewerView.swift; sourceTree = "<group>"; };
 		VLM0000530000000000000053 /* WindowChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chrome/WindowChrome.swift; sourceTree = "<group>"; };
 		VLM0000040000000000000004 /* Velum-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Velum-Bridging-Header.h"; sourceTree = "<group>"; };
+		VLM0000540000000000000054 /* AppForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppForm.swift; sourceTree = "<group>"; };
+		VLM0000550000000000000055 /* AppRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRegistry.swift; sourceTree = "<group>"; };
+		VLM0000560000000000000056 /* ELFBridgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ELFBridgeView.swift; sourceTree = "<group>"; };
+		VLM0000570000000000000057 /* H5PackageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H5PackageView.swift; sourceTree = "<group>"; };
+		VLM0000580000000000000058 /* ThirdPartyAppHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThirdPartyAppHost.swift; sourceTree = "<group>"; };
+		VLM0000590000000000000059 /* ThirdPartyAppManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThirdPartyAppManifest.swift; sourceTree = "<group>"; };
+		VLM00005A000000000000005A /* VelumJSBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VelumJSBridge.swift; sourceTree = "<group>"; };
+		VLM00005B000000000000005B /* WebServiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebServiceView.swift; sourceTree = "<group>"; };
+		VLM00005C000000000000005C /* AppInstallerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInstallerView.swift; sourceTree = "<group>"; };
+		VLM00005D000000000000005D /* AppInstallerSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInstallerSheets.swift; sourceTree = "<group>"; };
+		VLM00005E000000000000005E /* VAPInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VAPInstaller.swift; sourceTree = "<group>"; };
+		VLM00005F000000000000005F /* FakefsSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakefsSchemeHandler.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1387,6 +1411,7 @@
 				VLM2000070000000000000008 /* AgentApp */,
 				VLM200009000000000000000A /* SkillStoreApp */,
 				VLM20000A000000000000000B /* PreviewerApp */,
+				VLM20000C000000000000000C /* ThirdParty */,
 			);
 			path = Velum/Apps;
 			sourceTree = SOURCE_ROOT;
@@ -1455,6 +1480,25 @@
 				VLM0000520000000000000052 /* FileViewerView.swift */,
 			);
 			path = Velum/Apps/PreviewerApp;
+			sourceTree = SOURCE_ROOT;
+		};
+		VLM20000C000000000000000C /* ThirdParty */ = {
+			isa = PBXGroup;
+			children = (
+				VLM0000540000000000000054 /* AppForm.swift */,
+				VLM0000550000000000000055 /* AppRegistry.swift */,
+				VLM0000560000000000000056 /* ELFBridgeView.swift */,
+				VLM0000570000000000000057 /* H5PackageView.swift */,
+				VLM0000580000000000000058 /* ThirdPartyAppHost.swift */,
+				VLM0000590000000000000059 /* ThirdPartyAppManifest.swift */,
+				VLM00005A000000000000005A /* VelumJSBridge.swift */,
+				VLM00005B000000000000005B /* WebServiceView.swift */,
+				VLM00005C000000000000005C /* AppInstallerView.swift */,
+				VLM00005D000000000000005D /* AppInstallerSheets.swift */,
+				VLM00005E000000000000005E /* VAPInstaller.swift */,
+				VLM00005F000000000000005F /* FakefsSchemeHandler.swift */,
+			);
+			path = Velum/Apps/ThirdParty;
 			sourceTree = SOURCE_ROOT;
 		};
 		BB792B7D1F96E32B00FFB7A4 /* Frameworks */ = {
@@ -2815,6 +2859,18 @@
 				VLM1000510000000000000051 /* DesktopItemsLayer.swift in Sources */,
 				VLM1000520000000000000052 /* FileViewerView.swift in Sources */,
 				VLM1000530000000000000053 /* WindowChrome.swift in Sources */,
+				VLM1000540000000000000054 /* AppForm.swift in Sources */,
+				VLM1000550000000000000055 /* AppRegistry.swift in Sources */,
+				VLM1000560000000000000056 /* ELFBridgeView.swift in Sources */,
+				VLM1000570000000000000057 /* H5PackageView.swift in Sources */,
+				VLM1000580000000000000058 /* ThirdPartyAppHost.swift in Sources */,
+				VLM1000590000000000000059 /* ThirdPartyAppManifest.swift in Sources */,
+				VLM10005A000000000000005A /* VelumJSBridge.swift in Sources */,
+				VLM10005B000000000000005B /* WebServiceView.swift in Sources */,
+				VLM10005C000000000000005C /* AppInstallerView.swift in Sources */,
+				VLM10005D000000000000005D /* AppInstallerSheets.swift in Sources */,
+				VLM10005E000000000000005E /* VAPInstaller.swift in Sources */,
+				VLM10005F000000000000005F /* FakefsSchemeHandler.swift in Sources */,
 				VLM1000190000000000000019 /* ISHShellExecutor.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

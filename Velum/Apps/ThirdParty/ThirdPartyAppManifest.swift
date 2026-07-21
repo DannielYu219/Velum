@@ -69,6 +69,22 @@ public struct ThirdPartyAppManifest: Codable, Identifiable, Hashable, Sendable {
             self.url = url
             self.entry = entry
         }
+
+        // 显式解码：port / entry 在 JSON 中可缺省，使用 init 的默认值。
+        // 避免每个形态的 manifest 都得写出与自身无关的字段
+        // （h5Package 不需要 port，webService 不需要 entry）。
+        private enum CodingKeys: String, CodingKey {
+            case command, cwd, port, url, entry
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            self.command = try c.decodeIfPresent(String.self, forKey: .command)
+            self.cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
+            self.port = try c.decodeIfPresent(Int.self, forKey: .port) ?? 0
+            self.url = try c.decodeIfPresent(String.self, forKey: .url)
+            self.entry = try c.decodeIfPresent(String.self, forKey: .entry) ?? "index.html"
+        }
     }
 
     // MARK: 派生路径
