@@ -26,6 +26,18 @@ nonisolated enum ModelCatalog {
     }
 
     static let catalog: [ModelInfo] = [
+        // MARK: - DeepSeek 专属模型 (Responses API)
+        .init(id: "deepseek/deepseek-r1:free",
+              displayName: "DeepSeek R1 (免费)",
+              provider: "deepseek",
+              tier: .fast,
+              supportsVision: false),
+        .init(id: "deepseek/deepseek-r1-thinking",
+              displayName: "DeepSeek R1 (深度思考)",
+              provider: "deepseek",
+              tier: .pro,
+              supportsVision: false),
+        
         // MARK: 多模态模型
         .init(id: "moonshotai/kimi-k2.7-code",
               displayName: "Kimi K2.7 Code",

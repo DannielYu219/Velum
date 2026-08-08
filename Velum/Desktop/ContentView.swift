@@ -219,10 +219,21 @@ private struct DesktopCanvasSizeKey: EnvironmentKey {
     static let defaultValue: CGSize = .zero
 }
 
+private struct DesktopScaleFactorKey: EnvironmentKey {
+    /// [TASK #9] 默认缩放比 100%
+    static let defaultValue: Double = 1.0
+}
+
 private extension EnvironmentValues {
     var desktopCanvasSize: CGSize {
         get { self[DesktopCanvasSizeKey.self] }
         set { self[DesktopCanvasSizeKey.self] = newValue }
+    }
+    
+    /// [TASK #9] 桌面缩放比访问器 (50% ~ 200%)
+    var desktopScaleFactor: Double {
+        get { self[DesktopScaleFactorKey.self] }
+        set { self[DesktopScaleFactorKey.self] = newValue }
     }
 }
 

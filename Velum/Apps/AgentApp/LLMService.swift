@@ -293,6 +293,13 @@ final class AgentConfig: ObservableObject {
     }
 
     func makeProvider() -> ModelProvider? {
+        // [TASK #7] DeepSeek Responses API 优先
+        if model.lowercased().contains("deepseek") && (model.hasPrefix("deepseek/") || model.contains("r1")) {
+            guard !apiKey.isEmpty, !endpoint.isEmpty else { return nil }
+            let baseURL = URL(string: endpoint) ?? URL(string: "https://api.deepseek.com/v1")!
+            return DeepSeekResponsesClient(baseURL: baseURL, apiKey: apiKey)
+        }
+        
         // 自定义服务商（custom:: 命名空间）
         if CustomProviderRegistry.shared.isCustomModel(model) {
             return CustomProviderRegistry.shared.resolve(model)?.provider
@@ -301,7 +308,7 @@ final class AgentConfig: ObservableObject {
         guard !apiKey.isEmpty, !endpoint.isEmpty, !model.isEmpty else { return nil }
         return OpenAICompatibleClient(baseURL: endpoint, apiKey: apiKey)
     }
-
+    
     /// 实际发给 provider 的 modelId（自定义模型去掉命名空间前缀）
     var effectiveModelId: String {
         if CustomProviderRegistry.shared.isCustomModel(model) {
@@ -474,6 +481,322 @@ final class OpenAICompatibleClient: ModelProvider, @unchecked Sendable {
             return d
         }
     }
+}
+
+// MARK: - DeepSeek Responses API（官方 Responses API 支持）
+
+/// [TASK #7] DeepSeek Responses API 专用 Provider
+/// 参考：https://api-docs.deepseek.com/zh-cn/guides/responses_api
+final class DeepSeekResponsesClient: ModelProvider, @unchecked Sendable {
+    
+    nonisolated let providerName = "DeepSeek Responses"
+    private let baseURL = URL(string: "https://api.deepseek.com/v1")!
+    private let apiKey: String
+    private let session: URLSession
+    
+    // [TASK #7] 思考深度控制 (1 ~ 10)
+    var thinkingBudget: Int = 2048
+    var enableThinking: Bool = true
+    
+    init(baseURL: URL = URL(string: "https://api.deepseek.com/v1")!, 
+         apiKey: String, 
+         session: URLSession = .shared) {
+        self.baseURL = baseURL
+        self.apiKey = apiKey
+        self.session = session
+    }
+    
+    nonisolated func stream(messages: [Message], tools: [ToolDefinition], modelId: String) -> AsyncThrowingStream<StreamDelta, Error> {
+        AsyncThrowingStream { continuation in
+            let req = self.buildRequest(messages: messages, tools: tools, modelId: modelId)
+            let task = Task {
+                do {
+                    let (bytes, response) = try await self.session.bytes(for: req)
+                    guard let http = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: ProviderError.invalidResponse); return
+                    }
+                    
+                    if http.statusCode == 401 {
+                        continuation.finish(throwing: ProviderError.invalidAPIKey); return
+                    }
+                    guard (200..<300).contains(http.statusCode) else {
+                        var bodyLines: [String] = []
+                        do { for try await line in bytes.lines.prefix(5) { bodyLines.append(line) } } catch {}
+                        let raw = bodyLines.joined(separator: "\n")
+                        continuation.finish(throwing: ProviderError.serverError(code: http.statusCode, message: String(raw.prefix(200)))); return
+                    }
+                    
+                    try await self.parseResponsesSSE(bytes: bytes, continuation: continuation)
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish(throwing: ProviderError.cancelled)
+                } catch let e as ProviderError {
+                    continuation.finish(throwing: e)
+                } catch {
+                    continuation.finish(throwing: ProviderError.transport(error))
+                }
+            }
+            self.currentTask = task
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
+    }
+    
+    nonisolated func cancel() { currentTask?.cancel(); currentTask = nil }
+    
+    private var currentTask: Task<Void, Never>?
+    
+    // MARK: - DeepSeek Requests
+    
+    /// [TASK #7] 构建 DeepSeek Responses API 请求
+    nonisolated private func buildRequest(messages: [Message], tools: [ToolDefinition], modelId: String) -> URLRequest {
+        var req = URLRequest(url: baseURL.appendingPathComponent("responses"))
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 0
+        
+        let body = DeepSeekRequestBody(
+            model: modelId,
+            input: messages.map { $0.toDeepSeekInput() },
+            tools: tools.isEmpty ? nil : tools.map { $0.toDeepSeekTool() },
+            temperature: 0.7,
+            max_output_tokens: 8192,
+            reasoning: enableThinking ? ["effort": "medium"] : [], // [TASK #7] 开启思考过程
+            parallel_tool_calls: true
+        )
+        
+        req.httpBody = try? JSONEncoder().encode(body)
+        return req
+    }
+    
+    // MARK: - DeepSeek Response Parsing
+    
+    /// [TASK #7] 解析 DeepSeek Responses SSE
+    nonisolated private func parseResponsesSSE(bytes: URLSession.AsyncBytes, continuation: AsyncThrowingStream<StreamDelta, Error>.Continuation) async throws {
+        var accumulatedText: String = ""
+        var accumulatedReasoning: String = ""
+        
+        for try await line in bytes.lines {
+            if Task.isCancelled { throw ProviderError.cancelled }
+            if line.isEmpty { continue }
+            guard line.hasPrefix("data:") else { continue }
+            
+            let payload = line.dropFirst("data:".count).trimmingCharacters(in: .whitespaces)
+            if payload == "[DONE]" { return }
+            
+            guard let data = payload.data(using: .utf8) else { continue }
+            
+            // 错误处理
+            if let errPayload = try? JSONDecoder().decode(DeepSeekError.self, from: data),
+               let err = errPayload.error {
+                continuation.finish(throwing: ProviderError.serverError(code: err.code ?? 0, message: err.message ?? "服务器错误")); return
+            }
+            
+            do {
+                let chunk = try JSONDecoder().decode(DeepSeekEvent.self, from: data)
+                
+                switch chunk.type {
+                case .output_text_delta:
+                    accumulatedText += chunk.text ?? ""
+                    continuation.yield(StreamDelta(contentDelta: chunk.text ?? "", reasoningDelta: accumulatedReasoning))
+                    
+                case .reasoning_summary_text_delta:
+                    accumulatedReasoning += chunk.text ?? ""
+                    continuation.yield(StreamDelta(contentDelta: accumulatedText, reasoningDelta: chunk.text ?? ""))
+                    
+                case .output_text_done:
+                    // 文本完成，继续输出
+                    break
+                    
+                case .completed:
+                    // 对话完成
+                    if let usage = chunk.usage {
+                        continuation.yield(.usage(prompt: usage.input_tokens ?? 0, completion: usage.output_tokens ?? 0))
+                    }
+                    continuation.finish()
+                    
+                default:
+                    break
+                }
+            } catch {
+                continue
+            }
+        }
+    }
+}
+
+// MARK: - Message Extensions for DeepSeek
+
+extension Message {
+    /// 转换为 DeepSeek 输入格式
+    func toDeepSeekInput() -> DeepSeekMessageInput {
+        switch role {
+        case "system":
+            return .init(role: .system, content: [.type_text(text: content?.textValue ?? "")])
+        case "user":
+            return .init(role: .user, content: [.type_text(text: content?.textValue ?? "")])
+        case "assistant":
+            var contents: [DeepSeekContentPart] = []
+            if let text = content?.textValue, !text.isEmpty {
+                contents.append(.type_text(text: text))
+            }
+            if let toolCalls = toolCalls, !toolCalls.isEmpty {
+                contents.append(.type_function_call(
+                    name: toolCalls.first?.function.name ?? "",
+                    arguments: toolCalls.first?.function.arguments ?? ""
+                ))
+            }
+            return .init(role: .assistant, content: contents)
+        case "tool":
+            return .init(role: .tool, content: [.type_text(text: content?.textValue ?? "")], callId: toolCallId)
+        default:
+            return .init(role: .user, content: [.type_text(text: "")])
+        }
+    }
+}
+
+extension ToolDefinition {
+    /// 转换为 DeepSeek 工具格式
+    func toDeepSeekTool() -> DeepSeekFunctionTool {
+        return .init(type: .function, function: .init(
+            name: function.name,
+            description: function.description,
+            parameters: function.parameters.toJSONDictionary()
+        ))
+    }
+}
+
+// MARK: - DeepSeek Data Models
+
+struct DeepSeekRequestBody: Encodable {
+    let model: String
+    let input: [DeepSeekMessageInput]
+    let tools: [DeepSeekFunctionTool]?
+    let temperature: Double
+    let max_output_tokens: Int
+    let reasoning: [String: Any]
+    let parallel_tool_calls: Bool
+    
+    enum CodingKeys: String, CodingKey {
+        case model, input, tools, temperature
+        case max_output_tokens = "max_output_tokens"
+        case reasoning
+        case parallel_tool_calls = "parallel_tool_calls"
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(model, forKey: .model)
+        try container.encode(input, forKey: .input)
+        try container.encodeIfPresent(tools, forKey: .tools)
+        try container.encode(temperature, forKey: .temperature)
+        try container.encode(max_output_tokens, forKey: .max_output_tokens)
+        try container.encode(reasoning, forKey: .reasoning)
+        try container.encode(parallel_tool_calls, forKey: .parallel_tool_calls)
+    }
+}
+
+enum DeepSeekEventType: String {
+    case output_text_delta = "output_text.delta"
+    case output_text_done = "output_text.done"
+    case reasoning_summary_text_delta = "reasoning_summary_text.delta"
+    case completed = "completed"
+    case error = "error"
+}
+
+struct DeepSeekEvent: Decodable {
+    let type: DeepSeekEventType
+    let text: String?
+    let usage: DeepSeekUsage?
+    
+    enum CodingKeys: String, CodingKey {
+        case type = "type"
+        case text = "text"
+        case usage = "usage"
+    }
+}
+
+struct DeepSeekUsage: Decodable {
+    let input_tokens: Int?
+    let output_tokens: Int?
+    
+    enum CodingKeys: String, CodingKey {
+        case input_tokens = "input_tokens"
+        case output_tokens = "output_tokens"
+    }
+}
+
+struct DeepSeekError: Decodable {
+    let error: DeepSeekErrorDetail?
+    
+    enum CodingKeys: String, CodingKey {
+        case error = "error"
+    }
+}
+
+struct DeepSeekErrorDetail: Decodable {
+    let code: Int?
+    let message: String?
+}
+
+// MARK: - DeepSeek Data Models (补充)
+
+struct DeepSeekMessageInput: Encodable {
+    let role: DeepSeekRole
+    let content: [DeepSeekContentPart]
+    let callId: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case role, content
+        case callId = "call_id"
+    }
+}
+
+enum DeepSeekRole: String, Encodable {
+    case system = "system"
+    case user = "user"
+    case assistant = "assistant"
+    case tool = "tool"
+}
+
+struct DeepSeekContentPart: Encodable {
+    let type: String
+    let text: String?
+    let name: String?
+    let arguments: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case type = "type"
+        case text
+        case name
+        case arguments
+    }
+}
+
+extension DeepSeekContentPart {
+    static func type_text(text: String) -> DeepSeekContentPart {
+        .init(type: "input_text", text: text, name: nil, arguments: nil)
+    }
+    
+    static func type_function_call(name: String, arguments: String) -> DeepSeekContentPart {
+        .init(type: "input_function_call", text: nil, name: name, arguments: arguments)
+    }
+}
+
+struct DeepSeekFunctionTool: Encodable {
+    let type: String
+    let function: DeepSeekFunction
+    
+    enum CodingKeys: String, CodingKey {
+        case type = "type"
+        case function
+    }
+}
+
+struct DeepSeekFunction: Encodable {
+    let name: String
+    let description: String
+    let parameters: [String: Any]
 }
 
 // MARK: - LocalModelCleanup（一次性清理已废弃的本地 MLX 模型文件）

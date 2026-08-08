@@ -14,6 +14,10 @@ struct SettingsView: View {
     @State private var showPhotoPicker: Bool = false
     @State private var showFilePicker: Bool = false
     @State private var selectedPhotoItem: PhotosPickerItem?
+    
+    /// [TASK #9] 桌面缩放比状态 (默认 100%)
+    @State private var scaleValue: Double = 1.0
+    
     var body: some View {
         NavigationStack {
             List {
@@ -24,6 +28,7 @@ struct SettingsView: View {
                 keyboardSection
                 launchSection
                 rootfsSection
+                displaySection // [TASK #9] 新增显示设置
                 aboutSection
             }
             .listStyle(.insetGrouped)
@@ -32,6 +37,7 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
         }
+        .environment(\.desktopScaleFactor, scaleValue) // [TASK #9] 传递缩放比例
         .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItem, matching: .images)
         .onChange(of: selectedPhotoItem) { newItem in
             guard let item = newItem else { return }
@@ -208,6 +214,39 @@ struct SettingsView: View {
             } label: {
                 Label("rootfs 管理", systemImage: "internaldrive")
             }
+        }
+        .listRowBackground(Color.clear)
+    }
+
+    // MARK: - Display Scaling [TASK #9]
+
+    @ViewBuilder
+    private var displaySection: some View {
+        Section("显示") {
+            HStack {
+                Text("桌面缩放")
+                Spacer()
+                Text("\(Int(scaleValue * 100))%")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            
+            Stepper(value: $scaleValue, in: 0.5...2.0, step: 0.1) {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    Slider(value: $scaleValue, in: 0.5...2.0) {
+                        Text("缩小")
+                    } label: {
+                        Text("放大")
+                    }
+                }
+            }
+            .labelsHidden()
+        } header: {
+            Text("调整整个桌面的显示比例（50% ~ 200%）")
+        } footer: {
+            Text("立即生效，建议根据屏幕分辨率和个人偏好选择。小屏可放大，大屏可缩小。")
         }
         .listRowBackground(Color.clear)
     }
