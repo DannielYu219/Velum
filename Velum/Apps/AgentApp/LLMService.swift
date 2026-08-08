@@ -490,7 +490,7 @@ final class OpenAICompatibleClient: ModelProvider, @unchecked Sendable {
 final class DeepSeekResponsesClient: ModelProvider, @unchecked Sendable {
     
     nonisolated let providerName = "DeepSeek Responses"
-    private let baseURL = URL(string: "https://api.deepseek.com/v1")!
+    private let baseURL: URL
     private let apiKey: String
     private let session: URLSession
     
@@ -561,7 +561,7 @@ final class DeepSeekResponsesClient: ModelProvider, @unchecked Sendable {
             tools: tools.isEmpty ? nil : tools.map { $0.toDeepSeekTool() },
             temperature: 0.7,
             max_output_tokens: 8192,
-            reasoning: enableThinking ? ["effort": "medium"] : [], // [TASK #7] 开启思考过程
+            reasoning: enableThinking ? ["effort": "medium"] : [:], // [TASK #7] 开启思考过程
             parallel_tool_calls: true
         )
         
@@ -611,7 +611,13 @@ final class DeepSeekResponsesClient: ModelProvider, @unchecked Sendable {
                 case .completed:
                     // 对话完成
                     if let usage = chunk.usage {
-                        continuation.yield(.usage(prompt: usage.input_tokens ?? 0, completion: usage.output_tokens ?? 0))
+                        let event = StreamDelta()
+                        // 手动设置 usage
+                        var delta = StreamDelta()
+                        delta.usage = StreamDelta.Usage(promptTokens: usage.input_tokens ?? 0, 
+                                                        completionTokens: usage.output_tokens ?? 0, 
+                                                        totalTokens: (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0))
+                        continuation.yield(delta)
                     }
                     continuation.finish()
                     
@@ -632,9 +638,9 @@ extension Message {
     func toDeepSeekInput() -> DeepSeekMessageInput {
         switch role {
         case "system":
-            return .init(role: .system, content: [.type_text(text: content?.textValue ?? "")])
+            return .init(role: .system, content: [.type_text(text: content?.textValue ?? "")], callId: nil)
         case "user":
-            return .init(role: .user, content: [.type_text(text: content?.textValue ?? "")])
+            return .init(role: .user, content: [.type_text(text: content?.textValue ?? "")], callId: nil)
         case "assistant":
             var contents: [DeepSeekContentPart] = []
             if let text = content?.textValue, !text.isEmpty {
@@ -646,11 +652,11 @@ extension Message {
                     arguments: toolCalls.first?.function.arguments ?? ""
                 ))
             }
-            return .init(role: .assistant, content: contents)
+            return .init(role: .assistant, content: contents, callId: nil)
         case "tool":
             return .init(role: .tool, content: [.type_text(text: content?.textValue ?? "")], callId: toolCallId)
         default:
-            return .init(role: .user, content: [.type_text(text: "")])
+            return .init(role: .user, content: [.type_text(text: "")], callId: nil)
         }
     }
 }
@@ -658,10 +664,10 @@ extension Message {
 extension ToolDefinition {
     /// 转换为 DeepSeek 工具格式
     func toDeepSeekTool() -> DeepSeekFunctionTool {
-        return .init(type: .function, function: .init(
+        return .init(type: "function", function: .init(
             name: function.name,
             description: function.description,
-            parameters: function.parameters.toJSONDictionary()
+            parameters: [:] // [TODO] 转换 JSONValue 为 Dictionary
         ))
     }
 }
@@ -674,7 +680,7 @@ struct DeepSeekRequestBody: Encodable {
     let tools: [DeepSeekFunctionTool]?
     let temperature: Double
     let max_output_tokens: Int
-    let reasoning: [String: Any]
+    let reasoning: [String: String]
     let parallel_tool_calls: Bool
     
     enum CodingKeys: String, CodingKey {
@@ -691,7 +697,10 @@ struct DeepSeekRequestBody: Encodable {
         try container.encodeIfPresent(tools, forKey: .tools)
         try container.encode(temperature, forKey: .temperature)
         try container.encode(max_output_tokens, forKey: .max_output_tokens)
-        try container.encode(reasoning, forKey: .reasoning)
+        // reasoning 是字典，但可能为空
+        if !reasoning.isEmpty {
+            try container.encode(reasoning, forKey: .reasoning)
+        }
         try container.encode(parallel_tool_calls, forKey: .parallel_tool_calls)
     }
 }
@@ -713,6 +722,26 @@ struct DeepSeekEvent: Decodable {
         case type = "type"
         case text = "text"
         case usage = "usage"
+    }
+    
+    // DeepSeek API 返回格式可能是多种类型
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // 尝试解码 type，如果是字符串则转换为 enum
+        if let typeString = try? container.decode(String.self, forKey: .type) {
+            switch typeString {
+            case "output_text.delta": self.type = .output_text_delta
+            case "output_text.done": self.type = .output_text_done
+            case "reasoning_summary_text.delta": self.type = .reasoning_summary_text_delta
+            case "completed": self.type = .completed
+            case "error": self.type = .error
+            default: self.type = .output_text_delta
+            }
+        } else {
+            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Invalid event type")
+        }
+        self.text = try? container.decode(String.self, forKey: .text)
+        self.usage = try? container.decode(DeepSeekUsage.self, forKey: .usage)
     }
 }
 
@@ -796,7 +825,7 @@ struct DeepSeekFunctionTool: Encodable {
 struct DeepSeekFunction: Encodable {
     let name: String
     let description: String
-    let parameters: [String: Any]
+    let parameters: [String: String]
 }
 
 // MARK: - LocalModelCleanup（一次性清理已废弃的本地 MLX 模型文件）

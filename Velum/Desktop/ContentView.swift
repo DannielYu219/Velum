@@ -252,7 +252,8 @@ private struct DesktopWindow: View {
     let onFocus: () -> Void
     let onDrag: (CGPoint) -> Void
     let onResize: (CGSize) -> Void
-
+    
+    @ObservedObject var wm = WindowManager.shared
     @State private var localPosition: CGPoint
     @State private var localSize: CGSize
     @State private var dragOrigin: CGPoint?

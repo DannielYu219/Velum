@@ -108,8 +108,7 @@ private struct TrinityButtonWithSnap: View {
             // [OPTIMIZED] 悬停延迟触发提示
             if showPopover {
                 SnapPopover(layouts: snapLayouts, onSelect: onSnapSelect)
-                    .presentationCompactAdaptation(.popover)
-                    .background(Color.clear) // 适配 iOS 16+
+                    .background(Color.clear)
             }
         }
         .onHover { hovering in
@@ -118,9 +117,12 @@ private struct TrinityButtonWithSnap: View {
             // [PERF] 节流防抖：延迟 500ms 再显示分屏预览
             hoverTimer?.cancel()
             if hovering {
-                hoverTimer = Task.afterDelay(0.5) {
-                    await MainActor.run {
-                        withAnimation(WindowMotion.micro) { showPopover = true }
+                hoverTimer = Task {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    if !Task.isCancelled {
+                        await MainActor.run {
+                            withAnimation(WindowMotion.micro) { showPopover = true }
+                        }
                     }
                 }
             } else {
@@ -171,7 +173,7 @@ private struct SnapPopover: View {
                     HStack(spacing: 8) {
                         Image(systemName: layout.icon)
                             .font(.system(size: 12))
-                            .foregroundStyle(.accentColor)
+                            .foregroundStyle(Color.accentColor)
                         Text(layout.name)
                             .font(.caption)
                     }

@@ -37,7 +37,6 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
         }
-        .environment(\.desktopScaleFactor, scaleValue) // [TASK #9] 传递缩放比例
         .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItem, matching: .images)
         .onChange(of: selectedPhotoItem) { newItem in
             guard let item = newItem else { return }
@@ -222,7 +221,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var displaySection: some View {
-        Section("显示") {
+        Section {
             HStack {
                 Text("桌面缩放")
                 Spacer()
@@ -235,18 +234,13 @@ struct SettingsView: View {
                 HStack {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
-                    Slider(value: $scaleValue, in: 0.5...2.0) {
-                        Text("缩小")
-                    } label: {
-                        Text("放大")
-                    }
+                    Slider(value: $scaleValue, in: 0.5...2.0)
                 }
             }
-            .labelsHidden()
         } header: {
-            Text("调整整个桌面的显示比例（50% ~ 200%）")
+            Text("显示")
         } footer: {
-            Text("立即生效，建议根据屏幕分辨率和个人偏好选择。小屏可放大，大屏可缩小。")
+            Text("调整整个桌面的显示比例（50% ~ 200%），立即生效。小屏可放大，大屏可缩小。")
         }
         .listRowBackground(Color.clear)
     }

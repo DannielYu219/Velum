@@ -284,14 +284,6 @@ struct ComposerBar: View {
                             .frame(maxWidth: geo.size.width, alignment: .leading)
                             .focused($isFocused)
                             .submitLabel(.send)
-                            .onChange(of: isFocused) { newValue in
-                                // [PERF] 聚焦时立即设置 focus
-                                if newValue {
-                                    Task { @MainActor in
-                                        NSKeyedArchiver.archivedData(withRootObject: UIView(), requiringUnarchiving: false)
-                                    }
-                                }
-                            }
                             .onSubmit(submit)
                     }
                     
@@ -390,7 +382,7 @@ struct MessageBubble: View {
             .padding(.horizontal, AgentDesignTokens.Spacing.s)
         }
     }
-}
+    
     @ViewBuilder
     private var contentView: some View {
         let displayText = message.content.isEmpty && message.isStreaming ? " " : message.content
