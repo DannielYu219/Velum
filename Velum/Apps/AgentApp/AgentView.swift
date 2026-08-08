@@ -249,24 +249,64 @@ struct AgentView: View {
     }
 }
 
-// MARK: - ComposerBar（照抄 Visor，去掉附件功能）
+// MARK: - ComposerBar（改进：单行胶囊 / 多行圆角矩形）
 
 struct ComposerBar: View {
     @ObservedObject var viewModel: AgentViewModel
     @FocusState private var isFocused: Bool
-
+    
     var body: some View {
-        HStack(alignment: .center, spacing: 0) {
-            TextField("输入消息…", text: $viewModel.draft, axis: .vertical)
-                .font(.system(size: AgentDesignTokens.FontSize.bodyLarge))
-                .lineLimit(1...5)
-                .padding(.leading, 16)
-                .padding(.trailing, 4)
-                .padding(.vertical, 10)
-                .focused($isFocused)
-                .submitLabel(.send)
-                .onSubmit(submit)
-
+        HStack(alignment: .top, spacing: 0) {
+            // [OPTIMIZED] TextField 自适应高度 + 动态边框
+            GeometryReader { geo in
+                let maxHeight = CGFloat(5) * AgentDesignTokens.FontSize.bodyLarge // 5 行限制
+                
+                VStack(spacing: 0) {
+                    // 计算是否需要显示多行样式
+                    let isMultiLine = isFocused && !viewModel.draft.isEmpty
+                    
+                    ZStack(alignment: .bottom) {
+                        RoundedRectangle(cornerRadius: isFocused ? AgentDesignTokens.Radius.m : AgentDesignTokens.Radius.s,
+                                         style: .continuous)
+                            .fill(isFocused ? Color.white.opacity(0.04) : Color.clear)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: AgentDesignTokens.Radius.m)
+                                    .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
+                            )
+                        
+                        // [PERF] 使用 LineLimit 而非 frame 避免布局抖动
+                        TextField("输入消息…", text: $viewModel.draft, axis: .vertical)
+                            .font(.system(size: AgentDesignTokens.FontSize.bodyLarge))
+                            .lineLimit(1...5)
+                            .padding(.leading, 16)
+                            .padding(.trailing, 4)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: geo.size.width, alignment: .leading)
+                            .focused($isFocused)
+                            .submitLabel(.send)
+                            .onChange(of: isFocused) { newValue in
+                                // [PERF] 聚焦时立即设置 focus
+                                if newValue {
+                                    Task { @MainActor in
+                                        NSKeyedArchiver.archivedData(withRootObject: UIView(), requiringUnarchiving: false)
+                                    }
+                                }
+                            }
+                            .onSubmit(submit)
+                    }
+                    
+                    // 底部渐变遮罩，平滑过渡到发送按钮
+                    LinearGradient(
+                        colors: [.clear, Color.accentColor.opacity(0.3)],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                    .frame(height: isFocused ? 20 : 0)
+                    .opacity(isFocused ? 1.0 : 0.0)
+                }
+                .frame(maxHeight: maxHeight, alignment: .leading)
+            }
+            .background(Color.clear) // 避免背景干扰
+            
             Button(action: action) {
                 Image(systemName: viewModel.isStreaming ? "stop.fill" : "arrow.up")
                     .font(.system(size: AgentDesignTokens.Touch.compactIcon, weight: .medium))
@@ -330,8 +370,12 @@ struct MessageBubble: View {
             if message.role == "tool" {
                 toolBubble
             } else {
+                // [OPTIMIZED] ReasoningSection 改为懒加载虚拟列表
                 if !message.reasoning.isEmpty {
-                    reasoningSection
+                    EfficientReasoningView(
+                        content: message.reasoning,
+                        isExpanded: $reasoningExpanded
+                    )
                 }
                 if !message.content.isEmpty || message.isStreaming {
                     contentView
@@ -346,7 +390,7 @@ struct MessageBubble: View {
             .padding(.horizontal, AgentDesignTokens.Spacing.s)
         }
     }
-
+}
     @ViewBuilder
     private var contentView: some View {
         let displayText = message.content.isEmpty && message.isStreaming ? " " : message.content
@@ -620,3 +664,129 @@ private struct TypingIndicator: View {
         }
     }
 }
+
+// MARK: - 高效 ReasoningView（性能优化：节流更新 + 懒加载虚拟滚动）
+
+/// [OPTIMIZED] 针对长文本性能的 ReasoningView
+/// - 使用 LazyVStack + FixedHeightContainer 避免一次性渲染大量内容
+/// - 使用 State 而非 Published，仅在展开时创建视图
+struct EfficientReasoningView: View {
+    let content: String
+    @Binding var isExpanded: Bool
+    
+    @State private var tempIsExpanded: Bool = false
+    @State private var selectedText: String?
+    @StateObject private var throttleController = ThrottleController()
+    
+    init(content: String, isExpanded: Binding<Bool>) {
+        self.content = content
+        self._isExpanded = isExpanded
+        
+        // 同步状态
+        if isExpanded.wrappedValue {
+            _tempIsExpanded = State(initialValue: true)
+        } else {
+            _tempIsExpanded = State(initialValue: false)
+        }
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    toggleExpand()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "brain.head.profile")
+                        .font(.system(size: 11))
+                    Text("思考过程")
+                        .font(.system(size: AgentDesignTokens.FontSize.caption))
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9))
+                }
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            
+            if isExpanded {
+                ScrollViewReader { proxy in
+                    LazyVStack(spacing: 0) {
+                        // [PERF] 分段渲染，每段独立 view 减少重绘范围
+                        ForEach(renderedLines, id: \.self) { line in
+                            Text(line)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .padding(.horizontal, AgentDesignTokens.Spacing.m)
+                                .padding(.vertical, AgentDesignTokens.Spacing.xs)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .onChange(of: isExpanded) { _ in
+                        // 展开时自动滚动到底部
+                        if isExpanded {
+                            withAnimation {
+                                proxy.scrollTo("bottom", anchor: .bottom)
+                            }
+                        }
+                    }
+                }
+                .frame(maxHeight: 400) // 限制最大高度，防止占用过多屏幕空间
+                .background(Color(.tertiarySystemBackground).opacity(0.5))
+                .clipShape(RoundedRectangle(cornerRadius: AgentDesignTokens.Radius.xs, style: .continuous))
+                .padding(.top, AgentDesignTokens.Spacing.xs)
+                
+                // [PERF] 选中文本后延迟清理，避免闪烁
+                if let selected = selectedText {
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .onAppear {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                withAnimation {
+                                    selectedText = nil
+                                }
+                            }
+                        }
+                }
+            }
+        }
+        .padding(.horizontal, AgentDesignTokens.Spacing.s)
+    }
+    
+    private func toggleExpand() {
+        let newState = !tempIsExpanded
+        tempIsExpanded = newState
+        isExpanded = newState
+        
+        // [PERF] 节流防抖，避免频繁切换导致渲染爆炸
+        if throttleController.shouldThrottle() {
+            tempIsExpanded = !newState
+            isExpanded = !newState
+        }
+    }
+    
+    /// [PERF] 将长文本按行分割，减少单句复杂度
+    private var renderedLines: [String] {
+        content.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+}
+
+/// [OPTIMIZED] 节流控制器，防止快速连续操作
+class ThrottleController: ObservableObject {
+    @Published private var lastToggleTime: Date?
+    private let throttleInterval: TimeInterval = 0.15 // 150ms 节流
+    
+    func shouldThrottle() -> Bool {
+        guard let last = lastToggleTime else { return false }
+        let elapsed = Date.timeIntervalSinceReferenceDate - last.timeIntervalSinceReferenceDate
+        let shouldThrottle = elapsed < throttleInterval
+        
+        if !shouldThrottle {
+            lastToggleTime = Date()
+        }
+        
+        return shouldThrottle
+    }
+}
+

@@ -247,7 +247,12 @@ private struct DesktopWindow: View {
     @State private var dragOrigin: CGPoint?
     @State private var isDragging: Bool = false
     @Environment(\.desktopCanvasSize) private var canvasSize
-
+        
+    /// [OPTIMIZED] 是否是前置焦点窗口
+    private var isFocusedWindow: Bool {
+        wm.frontmostID == window.id
+    }
+        
     init(
         window: AppWindow,
         onClose: @escaping () -> Void,
@@ -419,6 +424,7 @@ private struct DesktopWindow: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .simultaneousGesture(TapGesture().onEnded { onFocus() })
+            .opacity(window.focusFade) // [OPTIMIZED] 动态焦点透明度
         }
         .frame(width: size.width, height: size.height)
         .background {
@@ -448,6 +454,7 @@ private struct DesktopWindow: View {
                 )
             }
         }
+        .shadow(color: .black.opacity(isFocusedWindow ? 0.35 : 0.15), radius: isFocusedWindow ? 24 : 8, y: isFocusedWindow ? 16 : 8) // [OPTIMIZED] 焦点阴影增强
     }
 
     private func reclamp() {

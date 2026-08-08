@@ -78,7 +78,8 @@ struct LauncherView: View {
     }
 
     private var builtinApps: [VelumApp] {
-        VelumApp.allCases.filter { !$0.isLauncher }
+        // [OPTIMIZED] 移除 installer（避免重复入口）
+        VelumApp.allCases.filter { !$0.isLauncher && $0 != .installer }
     }
 
     private func sectionHeader(_ title: String, count: Int) -> some View {
@@ -111,7 +112,7 @@ struct LauncherView: View {
     }
 }
 
-// MARK: - 内建 App 图标
+// MARK: - 内建 App 图标（优化：圆形 + 与 Dock 同尺寸）
 
 private struct LauncherIcon: View {
     let app: VelumApp
@@ -126,11 +127,12 @@ private struct LauncherIcon: View {
         } label: {
             VStack(spacing: 10) {
                 ZStack {
-                    GlassSurface(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                        .frame(width: 76, height: 76)
+                    // [OPTIMIZED] 改用圆形并缩小到 68pt（与 Dock 一致）
+                    GlassSurface(.regular, in: Circle())
+                        .frame(width: 68, height: 68)
                         .clipped()
                     Image(systemName: app.systemImage)
-                        .font(.system(size: 30))
+                        .font(.system(size: 24)) // 稍微缩小以适应圆形
                         .foregroundStyle(.primary)
                 }
                 .scaleEffect(hovering ? 1.08 : 1)
@@ -155,7 +157,7 @@ private struct LauncherIcon: View {
     }
 }
 
-// MARK: - 第三方 App 图标
+// MARK: - 第三方 App 图标（优化：圆形 + 与 Dock 同尺寸）
 
 private struct ThirdPartyLauncherIcon: View {
     let manifest: ThirdPartyAppManifest
@@ -169,12 +171,13 @@ private struct ThirdPartyLauncherIcon: View {
         } label: {
             VStack(spacing: 8) {
                 ZStack {
-                    GlassSurface(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                        .frame(width: 76, height: 76)
+                    // [OPTIMIZED] 改用圆形并缩小到 68pt（与 Dock 一致）
+                    GlassSurface(.regular, in: Circle())
+                        .frame(width: 68, height: 68)
                         .clipped()
                     VStack(spacing: 2) {
                         Image(systemName: manifest.icon)
-                            .font(.system(size: 26))
+                            .font(.system(size: 20)) // 微调大小
                         Text(manifest.form.rawValue.prefix(3).uppercased())
                             .font(.system(size: 7, weight: .heavy, design: .monospaced))
                             .foregroundStyle(.tertiary)
@@ -251,7 +254,6 @@ private struct InstallerEntryIcon: View {
         .animation(WindowMotion.micro, value: hovering)
     }
 }
-
 #Preview {
     LauncherView()
 }

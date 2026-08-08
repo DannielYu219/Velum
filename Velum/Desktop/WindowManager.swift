@@ -104,19 +104,23 @@ public struct AppWindow: Identifiable {
     public var contextPath: String?
     /// 第三方 App id（非 nil 时窗口内容由 ThirdPartyAppHost 渲染，忽略 `app` 的内建分发）。
     public var thirdPartyId: String?
-
+    /// [OPTIMIZED] 窗口不透明度（根据焦点计算）
+    public var focusFade: CGFloat = 1.0
+    
     public init(
         app: VelumApp,
         position: CGPoint = CGPoint(x: 200, y: 150),
         size: CGSize = CGSize(width: 1000, height: 750),
         contextPath: String? = nil,
-        thirdPartyId: String? = nil
+        thirdPartyId: String? = nil,
+        focusFade: CGFloat = 1.0
     ) {
         self.app = app
         self.position = position
         self.size = size
         self.contextPath = contextPath
         self.thirdPartyId = thirdPartyId
+        self.focusFade = focusFade
     }
 }
 
@@ -279,6 +283,16 @@ public final class WindowManager: ObservableObject {
     public func focus(_ id: UUID) {
         guard windows.contains(where: { $0.id == id }) else { return }
         frontmostID = id
+        
+        // [OPTIMIZED] 更新所有窗口的 focusFade 值
+        for i in windows.indices {
+            if windows[i].id == id {
+                windows[i].focusFade = 1.0
+            } else {
+                windows[i].focusFade = 0.6 // 非焦点窗口降低透明度
+            }
+        }
+        
         // Move to end of array (top of z-order in ZStack)
         guard let idx = windows.firstIndex(where: { $0.id == id }) else { return }
         if idx == windows.count - 1 { return } // already on top

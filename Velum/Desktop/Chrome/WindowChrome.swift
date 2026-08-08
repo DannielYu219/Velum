@@ -30,7 +30,7 @@ enum ChromeMetric {
     static let addressIconFrame: CGFloat = 14
 }
 
-// MARK: - Trinity (window controls)
+// MARK: - Trinity (window controls)（优化：阴影 + 焦点透明度）
 
 /// macOS 风格红绿灯：关闭（红）/ 最小化（黄）/ 最大化（绿）。
 /// 全局唯一实现 —— DesktopWindow 与 Browser 自定义标题栏都复用它，保证视觉一致。
@@ -38,15 +38,32 @@ struct WindowTrinity: View {
     let onClose: () -> Void
     let onMinimize: () -> Void
     let onZoom: () -> Void
-
+    
+    @State private var hoveringGreen: Bool = false
+    @State private var popoverPresented: Bool = false
+    
     var body: some View {
         HStack(spacing: 0) {
             TrinityButton(tint: .red, symbol: "xmark", action: onClose)
                 .padding(.trailing, 4)
             TrinityButton(tint: .yellow, symbol: "minus", action: onMinimize)
                 .padding(.horizontal, 4)
-            TrinityButton(tint: .green, symbol: "square", action: onZoom)
-                .padding(.leading, 4)
+            // [OPTIMIZED] 绿色按钮悬停显示分屏预设
+            TrinityButtonWithSnap(
+                tint: .green, 
+                symbol: "square", 
+                action: onZoom,
+                onHoverChanged: { hovering in
+                    withAnimation(WindowMotion.micro) { hoveringGreen = hovering }
+                },
+                onSnapSelect: { layout in
+                    withAnimation(WindowMotion.maximize) {
+                        popoverPresented = false
+                        // TODO: 实现分屏布局
+                    }
+                }
+            )
+            .padding(.leading, 4)
         }
         .padding(8)
     }
@@ -66,6 +83,112 @@ private struct TrinityButton: View {
             .frame(width: ChromeMetric.trinityButton, height: ChromeMetric.trinityButton)
             .contentShape(Rectangle())
             .onTapGesture(perform: action)
+    }
+}
+
+// [OPTIMIZED] 带分屏预设的 Trinity 按钮
+private struct TrinityButtonWithSnap: View {
+    let tint: Color
+    let symbol: String
+    let action: () -> Void
+    let onHoverChanged: (Bool) -> Void
+    let onSnapSelect: (SnapLayout) -> Void
+    
+    @State private var isHovering: Bool = false
+    @State private var showPopover: Bool = false
+    @State private var hoverTimer: Task<Void, Never>?
+    
+    var body: some View {
+        ZStack {
+            TrinityButton(tint: tint, symbol: symbol) {
+                action()
+                showPopover = false
+            }
+            
+            // [OPTIMIZED] 悬停延迟触发提示
+            if showPopover {
+                SnapPopover(layouts: snapLayouts, onSelect: onSnapSelect)
+                    .presentationCompactAdaptation(.popover)
+                    .background(Color.clear) // 适配 iOS 16+
+            }
+        }
+        .onHover { hovering in
+            onHoverChanged(hovering)
+            
+            // [PERF] 节流防抖：延迟 500ms 再显示分屏预览
+            hoverTimer?.cancel()
+            if hovering {
+                hoverTimer = Task.afterDelay(0.5) {
+                    await MainActor.run {
+                        withAnimation(WindowMotion.micro) { showPopover = true }
+                    }
+                }
+            } else {
+                withAnimation(WindowMotion.micro) { showPopover = false }
+            }
+        }
+        .opacity(isHovering ? 1.0 : 0.8) // [OPTIMIZED] 动态透明度
+        .shadow(color: .black.opacity(isHovering ? 0.3 : 0), radius: isHovering ? 12 : 0, y: 4)
+    }
+    
+    private var snapLayouts: [SnapLayout] {
+        [
+            SnapLayout(id: "left-half", name: "左半屏", icon: "rectangle.split.3x1", action: {
+                // TODO: 左半屏逻辑
+            }),
+            SnapLayout(id: "right-half", name: "右半屏", icon: "rectangle.split.1x3", action: {
+                // TODO: 右半屏逻辑
+            }),
+            SnapLayout(id: "top-half", name: "上半屏", icon: "rectangle.split.1x2", action: {
+                // TODO: 上半屏逻辑
+            })
+        ]
+    }
+}
+
+// [OPTIMIZED] 分屏布局定义
+struct SnapLayout: Identifiable {
+    let id: String
+    let name: String
+    let icon: String
+    let action: () -> Void
+}
+
+// [OPTIMIZED] 分屏提示弹窗
+private struct SnapPopover: View {
+    let layouts: [SnapLayout]
+    let onSelect: (SnapLayout) -> Void
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            ForEach(layouts) { layout in
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        layout.action()
+                        onSelect(layout)
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: layout.icon)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.accentColor)
+                        Text(layout.name)
+                            .font(.caption)
+                    }
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(0.92))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.1), lineWidth: 0.5))
+            }
+        }
+        .padding(4)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .shadow(radius: 20)
     }
 }
 
