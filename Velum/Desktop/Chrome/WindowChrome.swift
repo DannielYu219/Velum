@@ -34,13 +34,13 @@ enum ChromeMetric {
 
 /// macOS 风格红绿灯：关闭（红）/ 最小化（黄）/ 最大化（绿）。
 /// 全局唯一实现 —— DesktopWindow 与 Browser 自定义标题栏都复用它，保证视觉一致。
-/// 绿键悬停弹出 macOS 标准分屏预设面板（网格缩略图），`onSnap` 接收
-/// 0...1 单位坐标的区域矩形。
+/// 绿键悬停通过 `onGreenHover` 上报；分屏面板由宿主窗口在顶层 overlay
+/// 渲染（保证命中测试不被内容层拦截）。
 struct WindowTrinity: View {
     let onClose: () -> Void
     let onMinimize: () -> Void
     let onZoom: () -> Void
-    var onSnap: (CGRect) -> Void = { _ in }
+    var onGreenHover: (Bool) -> Void = { _ in }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -48,7 +48,7 @@ struct WindowTrinity: View {
                 .padding(.trailing, 4)
             TrinityButton(tint: .yellow, symbol: "minus", action: onMinimize)
                 .padding(.horizontal, 4)
-            GreenButtonWithSnap(onZoom: onZoom, onSnap: onSnap)
+            GreenButtonWithSnap(onZoom: onZoom, onHoverChanged: onGreenHover)
                 .padding(.leading, 4)
         }
         .padding(8)
@@ -93,75 +93,20 @@ struct SnapPreset: Identifiable {
     ]
 }
 
-/// 绿键：点击 = 最大化；悬停 0.5s = 弹出分屏预设面板。
+/// 绿键：点击 = 最大化；悬停状态上报给宿主窗口（面板在宿主顶层渲染）。
 private struct GreenButtonWithSnap: View {
     let onZoom: () -> Void
-    let onSnap: (CGRect) -> Void
-
-    @State private var showPanel: Bool = false
-    @State private var hoverTimer: Task<Void, Never>?
+    let onHoverChanged: (Bool) -> Void
 
     var body: some View {
-        TrinityButton(tint: .green, symbol: "square") {
-            dismiss()
-            onZoom()
-        }
-        .overlay(alignment: .topLeading) {
-            if showPanel {
-                SnapPanel(
-                    onSelect: { preset in
-                        dismiss()
-                        onSnap(preset.unit)
-                    },
-                    onHoverChanged: { inside in
-                        // 指针在绿键与面板之间迁移时的悬停链：
-                        // 进入面板取消收起计时；离开面板延迟收起。
-                        hoverTimer?.cancel()
-                        if !inside { scheduleDismiss() }
-                    }
-                )
-                .fixedSize()
-                .offset(x: -12, y: 26)
-                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .topLeading)))
-                .zIndex(10)
-            }
-        }
-        .onHover { hovering in
-            hoverTimer?.cancel()
-            if hovering {
-                hoverTimer = Task {
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    guard !Task.isCancelled else { return }
-                    await MainActor.run {
-                        withAnimation(WindowMotion.micro) { showPanel = true }
-                    }
-                }
-            } else {
-                // 延迟收起，给指针移入面板的缓冲
-                scheduleDismiss()
-            }
-        }
-    }
-
-    private func scheduleDismiss() {
-        hoverTimer?.cancel()
-        hoverTimer = Task {
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                withAnimation(WindowMotion.micro) { showPanel = false }
-            }
-        }
-    }
-
-    private func dismiss() {
-        hoverTimer?.cancel()
-        withAnimation(WindowMotion.micro) { showPanel = false }
+        TrinityButton(tint: .green, symbol: "square") { onZoom() }
+            .onHover(perform: onHoverChanged)
     }
 }
 
 /// macOS 标准分屏面板：屏幕缩略图网格，填充块表示窗口落区。
-private struct SnapPanel: View {
+/// 非 private：宿主窗口（DesktopWindow）在顶层 overlay 渲染它。
+struct SnapPanel: View {
     let onSelect: (SnapPreset) -> Void
     var onHoverChanged: (Bool) -> Void = { _ in }
     @State private var hovered: String?

@@ -261,6 +261,38 @@ private struct DesktopWindow: View {
     @State private var dragOrigin: CGPoint?
     @State private var isDragging: Bool = false
     @Environment(\.desktopCanvasSize) private var canvasSize
+
+    // MARK: 分屏面板（绿键悬停）
+    @State private var showSnapPanel: Bool = false
+    @State private var snapHoverTimer: Task<Void, Never>?
+
+    /// 悬停链调度：进入绿键 0.5s 后展开；离开（绿键或面板）1s 后收起；
+    /// 进入另一区域则取消计时。
+    private func snapHover(_ inside: Bool) {
+        snapHoverTimer?.cancel()
+        if inside {
+            snapHoverTimer = Task {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    withAnimation(WindowMotion.micro) { showSnapPanel = true }
+                }
+            }
+        } else {
+            snapHoverTimer = Task {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    withAnimation(WindowMotion.micro) { showSnapPanel = false }
+                }
+            }
+        }
+    }
+
+    private func dismissSnapPanel() {
+        snapHoverTimer?.cancel()
+        withAnimation(WindowMotion.micro) { showSnapPanel = false }
+    }
         
     /// [OPTIMIZED] 是否是前置焦点窗口
     private var isFocusedWindow: Bool {
@@ -392,7 +424,7 @@ private struct DesktopWindow: View {
                         onClose: onClose,
                         onMinimize: onMinimize,
                         onZoom: onZoom,
-                        onSnap: { unit in wm.snap(window.id, to: unit) }
+                        onGreenHover: { inside in snapHover(inside) }
                     )
                     Spacer(minLength: 0)
                 }
@@ -486,6 +518,22 @@ private struct DesktopWindow: View {
                         onDrag(localPosition)
                     }
                 )
+            }
+        }
+        // [FIX] 分屏面板放在窗口最顶层 overlay：绘制与命中测试都在
+        // 所有内容之上（此前挂在标题栏内被 AppHostView 拦截点击）。
+        .overlay(alignment: .topLeading) {
+            if showSnapPanel {
+                SnapPanel(
+                    onSelect: { preset in
+                        dismissSnapPanel()
+                        wm.snap(window.id, to: preset.unit)
+                    },
+                    onHoverChanged: { inside in snapHover(inside) }
+                )
+                .fixedSize()
+                .offset(x: 44, y: 42)
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .topLeading)))
             }
         }
     }
