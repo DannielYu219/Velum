@@ -139,11 +139,51 @@ final class FirstBootSetup: ObservableObject {
         logLines.removeAll()
     }
 
+    /// [FIX] 幂等环境修复：清理旧版损坏的 .profile 块 + 精简 motd。
+    /// 脚本内部以 fakefs 标记文件判重，已修复的环境直接跳过；
+    /// 老用户（firstBoot 已完成）在下次启动时也会执行一次。
+    func repairEnvironmentIfNeeded() async {
+        _ = try? await ISHBridge.shared.execute(Self.envRepairScript)
+    }
+
     // MARK: - Private
 
     private func appendLog(_ line: String) {
         logLines.append(line)
     }
+
+    /// 环境修复标记文件（存在于 fakefs，重装 App 不丢）。
+    private static let envMarker = "/root/.velum-env-v2"
+
+    /// 幂等修复脚本：标记存在则跳过；否则清理损坏块、heredoc 重写
+    /// .profile、精简 motd、落标记。
+    static let envRepairScript: String = {
+        let profileLines = [
+            "",
+            "# Velum environment",
+            "export PS1='velum:\\w# '",
+            "export PATH=$PATH:/usr/local/bin",
+            "alias ll='ls -la'",
+            "alias la='ls -la'",
+            "alias ..='cd ..'",
+            "alias ...='cd ../..'",
+            "alias python=python3",
+            "alias pip='pip3'",
+        ].joined(separator: "\n")
+
+        return [
+            "if [ ! -e \(envMarker) ]; then",
+            "  sed -i '/# Velum environment/,$d' /root/.profile 2>/dev/null || true",
+            "  sed -i '/velum:/,$d' /root/.profile 2>/dev/null || true",
+            "  cat >> /root/.profile << 'VELUM_PROFILE_EOF'",
+            profileLines,
+            "VELUM_PROFILE_EOF",
+            "  printf 'Velum · Alpine Linux\\n' > /etc/motd",
+            "  touch \(envMarker)",
+            "  echo 'env repaired'",
+            "fi",
+        ].joined(separator: "\n")
+    }()
 
     /// 换源脚本：从 /etc/os-release 读取实际 Alpine 版本，替换为清华 TUNA 镜像
     private static let mirrorSwitchScript: String = {
@@ -179,28 +219,17 @@ final class FirstBootSetup: ObservableObject {
     /// 官方源
     static let officialMirror = "https://dl-cdn.alpinelinux.org/alpine"
 
-    /// 环境配置脚本：创建目录、写 .profile、设置别名
+    /// 环境配置脚本：创建目录 + 幂等修复（.profile / motd）
+    ///
+    /// [FIX] 旧版用 printf '...' '<含单引号内容>' 写 .profile，单引号嵌套
+    /// 破裂导致写入的 alias 行损坏，shell 启动时执行 `-la`、`../..` 等碎片
+    /// 报错。现统一走 envRepairScript（heredoc 原样写入 + 清理旧损坏块）。
     private static let configScript: String = {
-        let profileLines = [
-            "",
-            "# Velum environment",
-            "export PS1='velum:\\w# '",
-            "export PATH=$PATH:/usr/local/bin",
-            "alias ll='ls -la'",
-            "alias la='ls -la'",
-            "alias ..='cd ..'",
-            "alias ...='cd ../..'",
-            "alias python=python3",
-            "alias pip='pip3'",
-        ].joined(separator: "\n")
-
-        return [
+        [
             "set -e",
             "mkdir -p /root/Documents /root/Downloads /root/Projects /root/.config",
             "",
-            "if ! grep -q 'Velum environment' /root/.profile 2>/dev/null; then",
-            "  printf '\\n%s\\n' '\(profileLines)' >> /root/.profile",
-            "fi",
+            envRepairScript,
             "",
             "echo 'velum' > /etc/hostname 2>/dev/null || true",
             "",

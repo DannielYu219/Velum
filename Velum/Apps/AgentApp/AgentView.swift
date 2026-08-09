@@ -250,23 +250,44 @@ struct AgentView: View {
     }
 }
 
-// MARK: - ComposerBar（单行胶囊 / 多行同 R 角圆角矩形）
+// MARK: - ComposerBar（胶囊 → 同 R 角圆角矩形，几何绑定）
 //
-// 形状规则：圆角半径恒等于单行高度的一半（即胶囊半径）。
-// 单行时整体高度 = 2×半径 → 视觉即胶囊；行数增多时高度增长、
-// 半径不变 → 自然的圆角矩形。无 GeometryReader，避免贪婪占高。
+// 几何规则（用户指定）：
+// - 初始（单行）= 胶囊，其高度记为 H0；
+// - R 角恒 = H0/2（即初始胶囊半径）；
+// - 行数 n≥2 时，高度 = H0 + (n-1) × (H0/2) —— 每行增量绑定 H0/2；
+// - 初始状态必须是胶囊，而不是一开始就是圆角矩形。
+//
+// 实现：首帧记录 H0（整条自然高）与 L0（TextField 单行高），
+// 之后用 TextField 实测高 / L0 推出行数，强制整条高度并恒定 R。
 
 struct ComposerBar: View {
     @ObservedObject var viewModel: AgentViewModel
     @FocusState private var isFocused: Bool
 
-    /// 实测单行 TextField 高度（首帧记录），用于推导胶囊半径与多行判定。
-    @State private var singleLineHeight: CGFloat = 0
+    /// 整条初始自然高 H0（首帧记录）。
+    @State private var baseBarHeight: CGFloat = 0
+    /// TextField 单行自然高 L0（首帧记录）。
+    @State private var baseFieldHeight: CGFloat = 0
+    /// TextField 当前实测高。
+    @State private var fieldHeight: CGFloat = 0
 
-    /// 单行基准：19pt 字体行高 + 上下 10pt padding 的估算值（测量前的兜底）。
-    private let fallbackSingleLine: CGFloat = 43
+    /// 当前行数：TextField 实测高 ÷ 单行高，四舍五入。
+    private var lineCount: Int {
+        guard baseFieldHeight > 1 else { return 1 }
+        return min(5, max(1, Int((fieldHeight / baseFieldHeight).rounded())))
+    }
 
-    private var radius: CGFloat { (singleLineHeight > 0 ? singleLineHeight : fallbackSingleLine) / 2 }
+    /// 整条强制高度：H0 + (n-1)×H0/2。首帧未测量时 nil（取自然高）。
+    private var barHeight: CGFloat? {
+        guard baseBarHeight > 1 else { return nil }
+        return baseBarHeight + CGFloat(lineCount - 1) * (baseBarHeight / 2)
+    }
+
+    /// R 角恒 = H0/2。单行时高度恰为 H0 → 标准胶囊。
+    private var radius: CGFloat {
+        baseBarHeight > 1 ? baseBarHeight / 2 : 28
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
@@ -279,14 +300,10 @@ struct ComposerBar: View {
                 .focused($isFocused)
                 .submitLabel(.send)
                 .onSubmit(submit)
-                // 测量 TextField 实际高度：首帧记为单行基准，之后据此判定多行。
-                .background(
-                    HeightReader { h in
-                        if singleLineHeight == 0 {
-                            singleLineHeight = h
-                        }
-                    }
-                )
+                .background(HeightReader { h in
+                    fieldHeight = h
+                    if baseFieldHeight == 0 { baseFieldHeight = h }
+                })
 
             Button(action: action) {
                 Image(systemName: viewModel.isStreaming ? "stop.fill" : "arrow.up")
@@ -303,8 +320,12 @@ struct ComposerBar: View {
             .padding(.trailing, 6)
             .padding(.vertical, 6)
         }
+        // 首帧记录整条自然高 H0（此时 barHeight 为 nil，不强制）。
+        .background(HeightReader { h in
+            if baseBarHeight == 0 { baseBarHeight = h }
+        })
+        .frame(height: barHeight)
         .background(
-            // 半径恒定 = 单行高度/2：单行即胶囊，多行即同 R 角圆角矩形。
             RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
         )
@@ -315,7 +336,7 @@ struct ComposerBar: View {
         .shadow(color: .black.opacity(0.04), radius: 16, y: 4)
         .padding(.horizontal, AgentDesignTokens.Spacing.l)
         .padding(.bottom, AgentDesignTokens.Spacing.s)
-        .animation(WindowMotion.micro, value: singleLineHeight)
+        .animation(WindowMotion.micro, value: lineCount)
     }
 
     private var canSend: Bool {

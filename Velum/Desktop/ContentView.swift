@@ -53,6 +53,8 @@ struct ContentView: View {
             }
             if kernel.state == .ready {
                 await firstBoot.runIfNeeded()
+                // [FIX] 幂等修复老环境：清理损坏 .profile 块 + 精简 motd
+                await firstBoot.repairEnvironmentIfNeeded()
                 // 注入三种形态的演示第三方 App（幂等；首次会把 H5 演示包写进 fakefs）。
                 await AppRegistry.shared.seedDemosIfNeeded()
             }
