@@ -30,40 +30,26 @@ enum ChromeMetric {
     static let addressIconFrame: CGFloat = 14
 }
 
-// MARK: - Trinity (window controls)（优化：阴影 + 焦点透明度）
+// MARK: - Trinity (window controls)
 
 /// macOS 风格红绿灯：关闭（红）/ 最小化（黄）/ 最大化（绿）。
 /// 全局唯一实现 —— DesktopWindow 与 Browser 自定义标题栏都复用它，保证视觉一致。
+/// 绿键悬停弹出 macOS 标准分屏预设面板（网格缩略图），`onSnap` 接收
+/// 0...1 单位坐标的区域矩形。
 struct WindowTrinity: View {
     let onClose: () -> Void
     let onMinimize: () -> Void
     let onZoom: () -> Void
-    
-    @State private var hoveringGreen: Bool = false
-    @State private var popoverPresented: Bool = false
-    
+    var onSnap: (CGRect) -> Void = { _ in }
+
     var body: some View {
         HStack(spacing: 0) {
             TrinityButton(tint: .red, symbol: "xmark", action: onClose)
                 .padding(.trailing, 4)
             TrinityButton(tint: .yellow, symbol: "minus", action: onMinimize)
                 .padding(.horizontal, 4)
-            // [OPTIMIZED] 绿色按钮悬停显示分屏预设
-            TrinityButtonWithSnap(
-                tint: .green, 
-                symbol: "square", 
-                action: onZoom,
-                onHoverChanged: { hovering in
-                    withAnimation(WindowMotion.micro) { hoveringGreen = hovering }
-                },
-                onSnapSelect: { layout in
-                    withAnimation(WindowMotion.maximize) {
-                        popoverPresented = false
-                        // TODO: 实现分屏布局
-                    }
-                }
-            )
-            .padding(.leading, 4)
+            GreenButtonWithSnap(onZoom: onZoom, onSnap: onSnap)
+                .padding(.leading, 4)
         }
         .padding(8)
     }
@@ -86,111 +72,157 @@ private struct TrinityButton: View {
     }
 }
 
-// [OPTIMIZED] 带分屏预设的 Trinity 按钮
-private struct TrinityButtonWithSnap: View {
-    let tint: Color
-    let symbol: String
-    let action: () -> Void
-    let onHoverChanged: (Bool) -> Void
-    let onSnapSelect: (SnapLayout) -> Void
-    
-    @State private var isHovering: Bool = false
-    @State private var showPopover: Bool = false
+// MARK: - 分屏预设（macOS 标准网格面板）
+
+/// 分屏预设：单位坐标（0...1）区域矩形。
+struct SnapPreset: Identifiable {
+    let id: String
+    let unit: CGRect
+
+    static let moveResize: [SnapPreset] = [
+        .init(id: "left",  unit: CGRect(x: 0,   y: 0,   width: 0.5, height: 1)),
+        .init(id: "right", unit: CGRect(x: 0.5, y: 0,   width: 0.5, height: 1)),
+        .init(id: "top",   unit: CGRect(x: 0,   y: 0,   width: 1,   height: 0.5)),
+        .init(id: "bottom",unit: CGRect(x: 0,   y: 0.5, width: 1,   height: 0.5)),
+    ]
+    static let fillArrange: [SnapPreset] = [
+        .init(id: "tl", unit: CGRect(x: 0,   y: 0,   width: 0.5, height: 0.5)),
+        .init(id: "tr", unit: CGRect(x: 0.5, y: 0,   width: 0.5, height: 0.5)),
+        .init(id: "bl", unit: CGRect(x: 0,   y: 0.5, width: 0.5, height: 0.5)),
+        .init(id: "br", unit: CGRect(x: 0.5, y: 0.5, width: 0.5, height: 0.5)),
+    ]
+}
+
+/// 绿键：点击 = 最大化；悬停 0.5s = 弹出分屏预设面板。
+private struct GreenButtonWithSnap: View {
+    let onZoom: () -> Void
+    let onSnap: (CGRect) -> Void
+
+    @State private var showPanel: Bool = false
     @State private var hoverTimer: Task<Void, Never>?
-    
+
     var body: some View {
-        ZStack {
-            TrinityButton(tint: tint, symbol: symbol) {
-                action()
-                showPopover = false
-            }
-            
-            // [OPTIMIZED] 悬停延迟触发提示
-            if showPopover {
-                SnapPopover(layouts: snapLayouts, onSelect: onSnapSelect)
-                    .background(Color.clear)
+        TrinityButton(tint: .green, symbol: "square") {
+            dismiss()
+            onZoom()
+        }
+        .overlay(alignment: .topLeading) {
+            if showPanel {
+                SnapPanel(
+                    onSelect: { preset in
+                        dismiss()
+                        onSnap(preset.unit)
+                    },
+                    onHoverChanged: { inside in
+                        // 指针在绿键与面板之间迁移时的悬停链：
+                        // 进入面板取消收起计时；离开面板延迟收起。
+                        hoverTimer?.cancel()
+                        if !inside { scheduleDismiss() }
+                    }
+                )
+                .fixedSize()
+                .offset(x: -12, y: 26)
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .topLeading)))
+                .zIndex(10)
             }
         }
         .onHover { hovering in
-            onHoverChanged(hovering)
-            
-            // [PERF] 节流防抖：延迟 500ms 再显示分屏预览
             hoverTimer?.cancel()
             if hovering {
                 hoverTimer = Task {
                     try? await Task.sleep(nanoseconds: 500_000_000)
-                    if !Task.isCancelled {
-                        await MainActor.run {
-                            withAnimation(WindowMotion.micro) { showPopover = true }
-                        }
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run {
+                        withAnimation(WindowMotion.micro) { showPanel = true }
                     }
                 }
             } else {
-                withAnimation(WindowMotion.micro) { showPopover = false }
+                // 延迟收起，给指针移入面板的缓冲
+                scheduleDismiss()
             }
         }
-        .opacity(isHovering ? 1.0 : 0.8) // [OPTIMIZED] 动态透明度
-        .shadow(color: .black.opacity(isHovering ? 0.3 : 0), radius: isHovering ? 12 : 0, y: 4)
     }
-    
-    private var snapLayouts: [SnapLayout] {
-        [
-            SnapLayout(id: "left-half", name: "左半屏", icon: "rectangle.split.3x1", action: {
-                // TODO: 左半屏逻辑
-            }),
-            SnapLayout(id: "right-half", name: "右半屏", icon: "rectangle.split.1x3", action: {
-                // TODO: 右半屏逻辑
-            }),
-            SnapLayout(id: "top-half", name: "上半屏", icon: "rectangle.split.1x2", action: {
-                // TODO: 上半屏逻辑
-            })
-        ]
+
+    private func scheduleDismiss() {
+        hoverTimer?.cancel()
+        hoverTimer = Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation(WindowMotion.micro) { showPanel = false }
+            }
+        }
+    }
+
+    private func dismiss() {
+        hoverTimer?.cancel()
+        withAnimation(WindowMotion.micro) { showPanel = false }
     }
 }
 
-// [OPTIMIZED] 分屏布局定义
-struct SnapLayout: Identifiable {
-    let id: String
-    let name: String
-    let icon: String
-    let action: () -> Void
-}
+/// macOS 标准分屏面板：屏幕缩略图网格，填充块表示窗口落区。
+private struct SnapPanel: View {
+    let onSelect: (SnapPreset) -> Void
+    var onHoverChanged: (Bool) -> Void = { _ in }
+    @State private var hovered: String?
 
-// [OPTIMIZED] 分屏提示弹窗
-private struct SnapPopover: View {
-    let layouts: [SnapLayout]
-    let onSelect: (SnapLayout) -> Void
-    
     var body: some View {
-        VStack(spacing: 8) {
-            ForEach(layouts) { layout in
-                Button {
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        layout.action()
-                        onSelect(layout)
-                    }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: layout.icon)
-                            .font(.system(size: 12))
-                            .foregroundStyle(Color.accentColor)
-                        Text(layout.name)
-                            .font(.caption)
-                    }
+        VStack(alignment: .leading, spacing: 10) {
+            group("移动与调整大小", SnapPreset.moveResize)
+            Divider().opacity(0.3)
+            group("填充与排列", SnapPreset.fillArrange)
+        }
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
+        .onHover(perform: onHoverChanged)
+    }
+
+    private func group(_ title: String, _ presets: [SnapPreset]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                ForEach(presets) { preset in
+                    SnapThumbnail(unit: preset.unit, highlighted: hovered == preset.id)
+                        .onHover { h in hovered = h ? preset.id : nil }
+                        .onTapGesture { onSelect(preset) }
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.white.opacity(0.92))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.1), lineWidth: 0.5))
             }
         }
-        .padding(4)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(radius: 20)
+    }
+}
+
+/// 单个屏幕缩略图：外框 = 屏幕，填充块 = 窗口区域。
+private struct SnapThumbnail: View {
+    let unit: CGRect
+    let highlighted: Bool
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(highlighted ? Color.accentColor.opacity(0.25) : Color.primary.opacity(0.06))
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .strokeBorder(highlighted ? Color.accentColor : Color.secondary.opacity(0.7),
+                                  lineWidth: 1)
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(highlighted ? Color.accentColor : Color.secondary.opacity(0.85))
+                    .frame(width: max(4, geo.size.width * unit.width - 3),
+                           height: max(3, geo.size.height * unit.height - 3))
+                    .offset(x: geo.size.width * unit.minX + 1.5,
+                            y: geo.size.height * unit.minY + 1.5)
+            }
+        }
+        .frame(width: 38, height: 26)
+        .contentShape(Rectangle())
+        .scaleEffect(highlighted ? 1.06 : 1)
+        .animation(WindowMotion.micro, value: highlighted)
     }
 }
 

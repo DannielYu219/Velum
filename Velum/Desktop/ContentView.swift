@@ -388,11 +388,19 @@ private struct DesktopWindow: View {
         VStack(spacing: 0) {
             if window.app != .browser {
                 HStack(spacing: 0) {
-                    WindowTrinity(onClose: onClose, onMinimize: onMinimize, onZoom: onZoom)
+                    WindowTrinity(
+                        onClose: onClose,
+                        onMinimize: onMinimize,
+                        onZoom: onZoom,
+                        onSnap: { unit in wm.snap(window.id, to: unit) }
+                    )
                     Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { onFocus() }
+                // [FIX] 标题栏（含绿键分屏面板）必须绘制在 AppHostView 之上，
+                // 否则面板被后绘制的内容层盖住不可见。
+                .zIndex(10)
                 .gesture(
                     DragGesture(minimumDistance: 1, coordinateSpace: .global)
                         .onChanged { value in

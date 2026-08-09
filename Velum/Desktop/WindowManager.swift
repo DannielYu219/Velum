@@ -337,6 +337,29 @@ public final class WindowManager: ObservableObject {
         }
     }
 
+    /// [TASK] 分屏吸附：unit 为 0...1 单位坐标区域矩形（来自绿键悬停面板）。
+    /// 全区域 (1×1) 等价最大化；否则按画布换算 position/size 并取消最大化。
+    public func snap(_ id: UUID, to unit: CGRect) {
+        guard let idx = windows.firstIndex(where: { $0.id == id }) else { return }
+        withAnimation(WindowMotion.maximize) {
+            if unit.width >= 0.999 && unit.height >= 0.999 {
+                windows[idx].isMaximized = true
+                return
+            }
+            let canvas = Self.screenBounds
+            let raw = CGRect(
+                x: canvas.minX + unit.minX * canvas.width,
+                y: canvas.minY + unit.minY * canvas.height,
+                width: unit.width * canvas.width,
+                height: unit.height * canvas.height
+            )
+            let fitted = Self.clamp(size: raw.size, in: canvas)
+            windows[idx].isMaximized = false
+            windows[idx].size = fitted
+            windows[idx].position = Self.clamp(position: raw.origin, size: fitted, in: canvas)
+        }
+    }
+
     // MARK: Geometry updates (no animation — called during drag/resize)
 
     public func updatePosition(_ id: UUID, position: CGPoint) {
