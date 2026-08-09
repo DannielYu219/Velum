@@ -416,7 +416,6 @@ final class AgentRuntime: @unchecked Sendable {
 final class AgentViewModel: ObservableObject {
 
     @Published var messages: [AgentMessage] = []
-    @Published var draft: String = ""
     @Published var isStreaming: Bool = false
     @Published var errorMessage: String?
     @Published var sessionInputTokens: Int = 0
@@ -505,8 +504,8 @@ final class AgentViewModel: ObservableObject {
 
     // MARK: - Send
 
-    func send() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    func send(text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isStreaming else { return }
         guard let sessionId = currentSessionId else { return }
 
@@ -533,7 +532,6 @@ final class AgentViewModel: ObservableObject {
         messages.append(userMsg)
         Task { await SessionStore.shared.appendMessage(
             PersistableMessage(id: userMsg.id.uuidString, role: "user", content: text), to: sessionId) }
-        draft = ""
         errorMessage = nil
         DebugBus.shared.cli("发送消息：\(text.prefix(100))")
 

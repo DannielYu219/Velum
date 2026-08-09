@@ -265,6 +265,10 @@ struct ComposerBar: View {
     @ObservedObject var viewModel: AgentViewModel
     @FocusState private var isFocused: Bool
 
+    /// [PERF] 草稿本地化：击键只重算 ComposerBar，不触发整个 AgentView
+    /// （含长历史列表）重渲染。发送时才交给 viewModel。
+    @State private var localDraft: String = ""
+
     /// 整条初始自然高 H0（首帧记录）。
     @State private var baseBarHeight: CGFloat = 0
     /// TextField 单行自然高 L0（首帧记录）。
@@ -289,9 +293,13 @@ struct ComposerBar: View {
         baseBarHeight > 1 ? baseBarHeight / 2 : 28
     }
 
+    private var trimmed: String {
+        localDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
-            TextField("输入消息…", text: $viewModel.draft, axis: .vertical)
+            TextField("输入消息…", text: $localDraft, axis: .vertical)
                 .font(.system(size: AgentDesignTokens.FontSize.bodyLarge))
                 .lineLimit(1...5)
                 .padding(.leading, 16)
@@ -300,9 +308,16 @@ struct ComposerBar: View {
                 .focused($isFocused)
                 .submitLabel(.send)
                 .onSubmit(submit)
+                // [PERF] 死区测量：变化 < 2pt 不写状态，斩断
+                // GeometryReader→preference→state 的逐帧布局回环
+                //（焦点/输入后不可逆卡顿的根因）。
                 .background(HeightReader { h in
-                    fieldHeight = h
-                    if baseFieldHeight == 0 { baseFieldHeight = h }
+                    if baseFieldHeight == 0 {
+                        baseFieldHeight = h
+                        fieldHeight = h
+                    } else if abs(h - fieldHeight) > 2 {
+                        fieldHeight = h
+                    }
                 })
 
             Button(action: action) {
@@ -315,7 +330,7 @@ struct ComposerBar: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .disabled(!viewModel.isStreaming && viewModel.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(!viewModel.isStreaming && trimmed.isEmpty)
             .opacity(canSend ? 1.0 : 0.4)
             .padding(.trailing, 6)
             .padding(.vertical, 6)
@@ -339,21 +354,21 @@ struct ComposerBar: View {
         .shadow(color: .black.opacity(0.04), radius: 16, y: 4)
         .padding(.horizontal, AgentDesignTokens.Spacing.l)
         .padding(.bottom, AgentDesignTokens.Spacing.s)
-        .animation(WindowMotion.micro, value: lineCount)
     }
 
     private var canSend: Bool {
         if viewModel.isStreaming { return true }
-        return !viewModel.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return !trimmed.isEmpty
     }
 
     private var action: () -> Void {
-        viewModel.isStreaming ? viewModel.stop : viewModel.send
+        viewModel.isStreaming ? viewModel.stop : submit
     }
 
     private func submit() {
         guard !viewModel.isStreaming, canSend else { return }
-        viewModel.send()
+        viewModel.send(text: trimmed)
+        localDraft = ""
     }
 }
 
@@ -676,9 +691,15 @@ struct MarkdownView: View {
         Text(inlineAttributed(s))
     }
 
+    /// [PERF] inline markdown 解析缓存：长历史重渲染时避免重复解析。
+    /// 仅主线程访问（视图渲染路径），容量封顶防内存膨胀。
+    private static var attrCache: [String: AttributedString] = [:]
+
     private func inlineAttributed(_ s: String) -> AttributedString {
-        if let attr = try? AttributedString(markdown: s) { return attr }
-        return AttributedString(s)
+        if let hit = Self.attrCache[s] { return hit }
+        let attr = (try? AttributedString(markdown: s)) ?? AttributedString(s)
+        if Self.attrCache.count < 256 { Self.attrCache[s] = attr }
+        return attr
     }
 }
 
@@ -686,6 +707,8 @@ struct MarkdownView: View {
 
 private struct TypingIndicator: View {
     @State private var phase: Int = 0
+    @State private var timerTask: Task<Void, Never>?
+
     var body: some View {
         HStack(spacing: 3) {
             ForEach(0..<3, id: \.self) { i in
@@ -694,9 +717,14 @@ private struct TypingIndicator: View {
             }
         }
         .onAppear { startTimer() }
+        // [PERF] 视图消失必须取消循环任务，否则泄漏的 Task 持续空转
+        .onDisappear {
+            timerTask?.cancel()
+            timerTask = nil
+        }
     }
     private func startTimer() {
-        Task { @MainActor in
+        timerTask = Task { @MainActor in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 400_000_000)
                 phase = (phase + 1) % 3
