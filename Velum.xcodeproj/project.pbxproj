@@ -371,6 +371,7 @@
 		VLM1000500000000000000050 /* DesktopItemsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000500000000000000050 /* DesktopItemsManager.swift */; };
 		VLM1000510000000000000051 /* DesktopItemsLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000510000000000000051 /* DesktopItemsLayer.swift */; };
 		VLM1000520000000000000052 /* FileViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000520000000000000052 /* FileViewerView.swift */; };
+		VLM1000600000000000000060 /* PPTXSlideParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000600000000000000060 /* PPTXSlideParser.swift */; };
 		VLM1000530000000000000053 /* WindowChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000530000000000000053 /* WindowChrome.swift */; };
 		VLM1000190000000000000019 /* ISHShellExecutor.m in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000190000000000000019 /* ISHShellExecutor.m */; };
 		VLM1000540000000000000054 /* AppForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLM0000540000000000000054 /* AppForm.swift */; };
@@ -976,6 +977,7 @@
 		VLM0000500000000000000050 /* DesktopItemsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopItemsManager.swift; sourceTree = "<group>"; };
 		VLM0000510000000000000051 /* DesktopItemsLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopItemsLayer.swift; sourceTree = "<group>"; };
 		VLM0000520000000000000052 /* FileViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileViewerView.swift; sourceTree = "<group>"; };
+		VLM0000600000000000000060 /* PPTXSlideParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PPTXSlideParser.swift; sourceTree = "<group>"; };
 		VLM0000530000000000000053 /* WindowChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chrome/WindowChrome.swift; sourceTree = "<group>"; };
 		VLM0000040000000000000004 /* Velum-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Velum-Bridging-Header.h"; sourceTree = "<group>"; };
 		VLM0000540000000000000054 /* AppForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppForm.swift; sourceTree = "<group>"; };
@@ -1478,6 +1480,7 @@
 				VLM0000480000000000000048 /* PreviewRendererView.swift */,
 				VLM0000490000000000000049 /* PreviewerView.swift */,
 				VLM0000520000000000000052 /* FileViewerView.swift */,
+				VLM0000600000000000000060 /* PPTXSlideParser.swift */,
 			);
 			path = Velum/Apps/PreviewerApp;
 			sourceTree = SOURCE_ROOT;
@@ -2858,6 +2861,7 @@
 				VLM1000500000000000000050 /* DesktopItemsManager.swift in Sources */,
 				VLM1000510000000000000051 /* DesktopItemsLayer.swift in Sources */,
 				VLM1000520000000000000052 /* FileViewerView.swift in Sources */,
+				VLM1000600000000000000060 /* PPTXSlideParser.swift in Sources */,
 				VLM1000530000000000000053 /* WindowChrome.swift in Sources */,
 				VLM1000540000000000000054 /* AppForm.swift in Sources */,
 				VLM1000550000000000000055 /* AppRegistry.swift in Sources */,

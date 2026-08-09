@@ -392,50 +392,84 @@ struct MarkdownRenderer: UIViewRepresentable {
 
 // MARK: - Office (QuickLook)
 //
-// [FIX 缩略图] QLPreviewController 裸嵌入时工具栏（含缩略图网格按钮）
-// 被隐藏。包进 UINavigationController 后，系统自带的幻灯片导航 /
-// 缩略图概览按钮恢复可见；另加全屏按钮进入完整 QL 交互。
+// [FIX 缩略图导航] 用户要求：在 PPT 显示区**右侧内联**一个缩略图/页
+// 导航列表，而不是弹系统全屏预览（iOS 上 fullScreenCover 会跳走）。
+// 实现：纯 Swift 解析 pptx zip 得到每页标题 → 右侧导航列表；点击时
+// 驱动 QuickLook 内部 UIScrollView 滚动到对应页。
+
+/// 持有当前内嵌 QLPreviewController 的弱引用，供右侧导航驱动滚动。
+final class QLHostRef {
+    static let shared = QLHostRef()
+    weak var controller: QLPreviewController?
+}
 
 struct OfficeRenderer: View {
     let url: URL
-    @State private var showFullScreen = false
+    @State private var slides: [PPTXSlide] = []
+
+    private var isPPT: Bool {
+        let ext = url.pathExtension.lowercased()
+        return ext == "pptx" || ext == "ppt"
+    }
 
     var body: some View {
-        QLNavigationContainer(url: url)
-            .overlay(alignment: .topTrailing) {
-                Button {
-                    showFullScreen = true
-                } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .frame(width: 30, height: 30)
-                        .background(.ultraThinMaterial, in: Circle())
+        HStack(spacing: 0) {
+            QLHostContainer(url: url)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // [FIX] 右侧内联缩略图/页导航（仅 ppt/pptx 且解析成功时显示）
+            if isPPT && slides.count > 1 {
+                Divider().background(Color.white.opacity(0.1))
+                SlideNavBar(slides: slides) { index in
+                    scrollToPage(index)
                 }
-                .buttonStyle(.plain)
-                .padding(8)
+                .frame(width: 148)
+                .background(Color.black.opacity(0.15))
             }
-            .fullScreenCover(isPresented: $showFullScreen) {
-                QLFullScreen(url: url)
+        }
+        .task(id: url) {
+            guard isPPT else { return }
+            slides = await PPTXSlideParser.parse(url: url)
+        }
+    }
+
+    /// 驱动 QuickLook 内部滚动视图跳到指定页。
+    private func scrollToPage(_ index: Int) {
+        guard let ql = QLHostRef.shared.controller,
+              let scrollView = Self.largestScrollView(in: ql.view) else { return }
+        let n = CGFloat(max(1, slides.count))
+        let pageHeight = scrollView.contentSize.height / n
+        let maxY = max(0, scrollView.contentSize.height - scrollView.bounds.height)
+        let y = min(max(0, CGFloat(index) * pageHeight), maxY)
+        scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: y), animated: true)
+    }
+
+    /// 递归查找 contentSize 最高的 UIScrollView（QL 的页面滚动容器）。
+    private static func largestScrollView(in view: UIView) -> UIScrollView? {
+        var best: UIScrollView?
+        var stack: [UIView] = [view]
+        while let v = stack.popLast() {
+            if let sv = v as? UIScrollView, sv.contentSize.height > (best?.contentSize.height ?? 0) {
+                best = sv
             }
+            stack.append(contentsOf: v.subviews)
+        }
+        return best
     }
 }
 
-/// 内嵌 QuickLook：UINavigationController 承载 QLPreviewController，
-/// 恢复其导航栏与缩略图概览控件。
-struct QLNavigationContainer: UIViewControllerRepresentable {
+/// 内嵌 QuickLook 容器（裸 QLPreviewController，不弹窗）。
+struct QLHostContainer: UIViewControllerRepresentable {
     let url: URL
 
-    func makeUIViewController(context: Context) -> UINavigationController {
-        let ql = QLPreviewController()
-        ql.dataSource = context.coordinator
-        let nav = UINavigationController(rootViewController: ql)
-        nav.navigationBar.prefersLargeTitles = false
-        nav.isNavigationBarHidden = false
-        return nav
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        let controller = QLPreviewController()
+        controller.dataSource = context.coordinator
+        QLHostRef.shared.controller = controller
+        return controller
     }
 
-    func updateUIViewController(_ uiController: UINavigationController, context: Context) {}
+    func updateUIViewController(_ uiController: QLPreviewController, context: Context) {}
 
     func makeCoordinator() -> Coordinator { Coordinator(url: url) }
 
@@ -449,20 +483,58 @@ struct QLNavigationContainer: UIViewControllerRepresentable {
     }
 }
 
-/// 全屏 QuickLook：完整系统交互（滑动翻页 + 缩略图网格）。
-struct QLFullScreen: View {
-    let url: URL
-    @Environment(\.dismiss) private var dismiss
+/// 右侧幻灯片导航列表：页码 + 标题，点击跳转。
+struct SlideNavBar: View {
+    let slides: [PPTXSlide]
+    let onSelect: (Int) -> Void
+    @State private var current: Int = 0
 
     var body: some View {
-        NavigationStack {
-            QLNavigationContainer(url: url)
-                .ignoresSafeArea()
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("完成") { dismiss() }
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("幻灯片")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.top, 10)
+
+                    ForEach(slides) { slide in
+                        Button {
+                            current = slide.index
+                            onSelect(slide.index)
+                        } label: {
+                            HStack(alignment: .top, spacing: 8) {
+                                Text("\(slide.index + 1)")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(current == slide.index ? Color.white : .secondary)
+                                    .frame(width: 22, height: 22)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                            .fill(current == slide.index
+                                                  ? Color.accentColor
+                                                  : Color.white.opacity(0.08))
+                                    )
+                                Text(slide.title)
+                                    .font(.caption)
+                                    .foregroundStyle(current == slide.index ? .primary : .secondary)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .id(slide.index)
                     }
                 }
+                .padding(.bottom, 10)
+            }
+            .onChange(of: current) { idx in
+                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(idx, anchor: .center) }
+            }
         }
     }
 }

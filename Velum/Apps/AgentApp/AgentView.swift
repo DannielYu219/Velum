@@ -324,7 +324,10 @@ struct ComposerBar: View {
         .background(HeightReader { h in
             if baseBarHeight == 0 { baseBarHeight = h }
         })
-        .frame(height: barHeight)
+        // [FIX] minHeight 而非 height：height 会把 HStack 压缩回 H0，
+        // TextField 永远长不高（输入框不增高的 bug）。minHeight 保证
+        // 量化高度的同时允许内容自然撑开。
+        .frame(minHeight: barHeight)
         .background(
             RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .fill(Color(.secondarySystemBackground))

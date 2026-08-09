@@ -449,6 +449,18 @@ private struct DesktopWindow: View {
             }
         }
         .clipShape(cornerRadius > 0 ? AnyShape(shape) : AnyShape(Rectangle()))
+        // [PERF] 阴影层放在 clipShape 之外：只对一个简单形状做高斯模糊，
+        // 且不被裁剪。绝不能 .shadow 在整个窗口内容上——复杂子树逐帧
+        // 离屏模糊会把全 App 拖到 ~10fps。
+        .background {
+            if cornerRadius > 0 {
+                shape
+                    .fill(Color.black.opacity(isFocusedWindow ? 0.55 : 0.3))
+                    .shadow(color: .black.opacity(isFocusedWindow ? 0.55 : 0.3),
+                            radius: isFocusedWindow ? 18 : 8,
+                            y: isFocusedWindow ? 10 : 5)
+            }
+        }
         .overlay(alignment: .bottomTrailing) {
             if showResize {
                 ResizeHandle(
@@ -468,7 +480,6 @@ private struct DesktopWindow: View {
                 )
             }
         }
-        .shadow(color: .black.opacity(isFocusedWindow ? 0.35 : 0.15), radius: isFocusedWindow ? 24 : 8, y: isFocusedWindow ? 16 : 8) // [OPTIMIZED] 焦点阴影增强
     }
 
     private func reclamp() {
