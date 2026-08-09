@@ -391,28 +391,78 @@ struct MarkdownRenderer: UIViewRepresentable {
 }
 
 // MARK: - Office (QuickLook)
+//
+// [FIX 缩略图] QLPreviewController 裸嵌入时工具栏（含缩略图网格按钮）
+// 被隐藏。包进 UINavigationController 后，系统自带的幻灯片导航 /
+// 缩略图概览按钮恢复可见；另加全屏按钮进入完整 QL 交互。
 
-struct OfficeRenderer: UIViewControllerRepresentable {
+struct OfficeRenderer: View {
+    let url: URL
+    @State private var showFullScreen = false
+
+    var body: some View {
+        QLNavigationContainer(url: url)
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    showFullScreen = true
+                } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 30, height: 30)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(8)
+            }
+            .fullScreenCover(isPresented: $showFullScreen) {
+                QLFullScreen(url: url)
+            }
+    }
+}
+
+/// 内嵌 QuickLook：UINavigationController 承载 QLPreviewController，
+/// 恢复其导航栏与缩略图概览控件。
+struct QLNavigationContainer: UIViewControllerRepresentable {
     let url: URL
 
-    func makeUIViewController(context: Context) -> QLPreviewController {
-        let controller = QLPreviewController()
-        controller.dataSource = context.coordinator
-        return controller
+    func makeUIViewController(context: Context) -> UINavigationController {
+        let ql = QLPreviewController()
+        ql.dataSource = context.coordinator
+        let nav = UINavigationController(rootViewController: ql)
+        nav.navigationBar.prefersLargeTitles = false
+        nav.isNavigationBarHidden = false
+        return nav
     }
 
-    func updateUIViewController(_ uiController: QLPreviewController, context: Context) {}
+    func updateUIViewController(_ uiController: UINavigationController, context: Context) {}
 
     func makeCoordinator() -> Coordinator { Coordinator(url: url) }
 
     final class Coordinator: NSObject, QLPreviewControllerDataSource {
         let url: URL
         init(url: URL) { self.url = url }
-
         func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
-
         func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
             return url as NSURL
+        }
+    }
+}
+
+/// 全屏 QuickLook：完整系统交互（滑动翻页 + 缩略图网格）。
+struct QLFullScreen: View {
+    let url: URL
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            QLNavigationContainer(url: url)
+                .ignoresSafeArea()
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("完成") { dismiss() }
+                    }
+                }
         }
     }
 }

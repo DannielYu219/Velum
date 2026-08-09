@@ -63,6 +63,8 @@ nonisolated final class CustomProviderRegistry: @unchecked Sendable {
     static let shared = CustomProviderRegistry()
 
     private static let storageKey = "agent.customProviderConfigs"
+    /// [FIX 持久化] Keychain 账户名——卸载重装后配置仍保留
+    private static let keychainAccount = "custom_provider_configs"
 
     private let queue = DispatchQueue(label: "com.lyrastudio.Velum.CustomProviderRegistry")
     private var configs: [CustomProviderConfig] = []
@@ -72,16 +74,27 @@ nonisolated final class CustomProviderRegistry: @unchecked Sendable {
         reload()
     }
 
-    // MARK: - 持久化
+    // MARK: - 持久化（Keychain 优先，UserDefaults 兜底迁移）
 
     func reload() {
         queue.sync {
+            // 1) Keychain（重装后仍在）
+            if let stored = AgentKeychain.get(account: Self.keychainAccount),
+               let data = stored.data(using: .utf8),
+               let decoded = try? JSONDecoder().decode([CustomProviderConfig].self, from: data) {
+                configs = decoded
+                return
+            }
+            // 2) 旧版 UserDefaults 迁移
             if let data = UserDefaults.standard.data(forKey: Self.storageKey),
                let decoded = try? JSONDecoder().decode([CustomProviderConfig].self, from: data) {
                 configs = decoded
-            } else {
-                configs = []
+                if let json = String(data: data, encoding: .utf8) {
+                    try? AgentKeychain.set(json, account: Self.keychainAccount)
+                }
+                return
             }
+            configs = []
         }
     }
 
@@ -90,6 +103,9 @@ nonisolated final class CustomProviderRegistry: @unchecked Sendable {
             self.configs = configs
             if let data = try? JSONEncoder().encode(configs) {
                 UserDefaults.standard.set(data, forKey: Self.storageKey)
+                if let json = String(data: data, encoding: .utf8) {
+                    try? AgentKeychain.set(json, account: Self.keychainAccount)
+                }
             }
         }
     }

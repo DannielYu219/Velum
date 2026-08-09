@@ -220,7 +220,8 @@ private struct InstallerEntryIcon: View {
         } label: {
             VStack(spacing: 10) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    // [FIX] 与其他启动台图标一致：圆形 + 68pt
+                    Circle()
                         .fill(
                             LinearGradient(
                                 colors: [Color(red: 0.2, green: 0.5, blue: 1.0).opacity(0.35),
@@ -229,12 +230,12 @@ private struct InstallerEntryIcon: View {
                             )
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            Circle()
                                 .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
                         )
-                        .frame(width: 76, height: 76)
+                        .frame(width: 68, height: 68)
                     Image(systemName: "arrow.down.app.fill")
-                        .font(.system(size: 30))
+                        .font(.system(size: 24))
                         .foregroundStyle(Color(red: 0.45, green: 0.75, blue: 1.0))
                 }
                 .scaleEffect(hovering ? 1.08 : 1)

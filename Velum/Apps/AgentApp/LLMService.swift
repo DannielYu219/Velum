@@ -253,16 +253,19 @@ nonisolated enum AgentKeychain {
 }
 
 // MARK: - AgentConfig（配置管理）
+//
+// [FIX 持久化] 配置存 Keychain（App 卸载/重装后仍保留），
+// 首次启动时从 UserDefaults 迁移旧值，保证升级不丢。
 
 @MainActor
 final class AgentConfig: ObservableObject {
     static let shared = AgentConfig()
 
     @Published var endpoint: String {
-        didSet { UserDefaults.standard.set(endpoint, forKey: "agent.endpoint") }
+        didSet { Self.persist(endpoint, account: "agent_endpoint", defaultsKey: "agent.endpoint") }
     }
     @Published var model: String {
-        didSet { UserDefaults.standard.set(model, forKey: "agent.model") }
+        didSet { Self.persist(model, account: "agent_model", defaultsKey: "agent.model") }
     }
     @Published var apiKey: String {
         didSet {
@@ -274,22 +277,36 @@ final class AgentConfig: ObservableObject {
         }
     }
     @Published var systemPrompt: String {
-        didSet { UserDefaults.standard.set(systemPrompt, forKey: "agent.systemPrompt") }
+        didSet { Self.persist(systemPrompt, account: "agent_systemPrompt", defaultsKey: "agent.systemPrompt") }
+    }
+
+    /// Keychain 优先读取；无则回退 UserDefaults（旧版数据）并迁移。
+    private static func load(account: String, defaultsKey: String, fallback: String) -> String {
+        if let v = AgentKeychain.get(account: account), !v.isEmpty { return v }
+        let legacy = UserDefaults.standard.string(forKey: defaultsKey) ?? fallback
+        if legacy != fallback { try? AgentKeychain.set(legacy, account: account) }
+        return legacy
+    }
+
+    private static func persist(_ value: String, account: String, defaultsKey: String) {
+        try? AgentKeychain.set(value, account: account)
+        UserDefaults.standard.set(value, forKey: defaultsKey)
     }
 
     private init() {
-        let defaults = UserDefaults.standard
-        self.endpoint = defaults.string(forKey: "agent.endpoint") ?? "https://openrouter.ai/api/v1"
+        self.endpoint = Self.load(account: "agent_endpoint",
+                                  defaultsKey: "agent.endpoint",
+                                  fallback: "https://openrouter.ai/api/v1")
         // 本地 MLX 模型功能已移除：如果残留 local:: 命名空间的 model id，重置为默认
-        let storedModel = defaults.string(forKey: "agent.model") ?? "xiaomi/mimo-v2.5"
-        if storedModel.hasPrefix("local::") {
-            self.model = "xiaomi/mimo-v2.5"
-            defaults.set("xiaomi/mimo-v2.5", forKey: "agent.model")
-        } else {
-            self.model = storedModel
-        }
+        var storedModel = Self.load(account: "agent_model",
+                                    defaultsKey: "agent.model",
+                                    fallback: "xiaomi/mimo-v2.5")
+        if storedModel.hasPrefix("local::") { storedModel = "xiaomi/mimo-v2.5" }
+        self.model = storedModel
         self.apiKey = AgentKeychain.get(account: "agent_api_key") ?? ""
-        self.systemPrompt = defaults.string(forKey: "agent.systemPrompt") ?? ""
+        self.systemPrompt = Self.load(account: "agent_systemPrompt",
+                                      defaultsKey: "agent.systemPrompt",
+                                      fallback: "")
     }
 
     func makeProvider() -> ModelProvider? {

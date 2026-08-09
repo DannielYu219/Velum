@@ -434,6 +434,45 @@ final class AgentViewModel: ObservableObject {
     private var currentAssistantId: UUID?
     @Published var currentSessionId: String?
 
+    // MARK: - 流式节流（性能关键）
+    //
+    // 每个 token delta 直接写 @Published messages 会导致整棵聊天树
+    // 以 token 速率（可达 50~100Hz）重渲染，滚动极卡。
+    // 这里把 delta 先累积进缓冲，最多 10Hz 批量 flush 到 messages。
+
+    private var pendingText: String = ""
+    private var pendingReasoning: String = ""
+    private var flushTask: Task<Void, Never>?
+
+    private func scheduleFlush() {
+        guard flushTask == nil else { return }
+        flushTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 100_000_000) // 10Hz
+            guard let self, !Task.isCancelled else { return }
+            await MainActor.run {
+                self.flushPending()
+                self.flushTask = nil
+            }
+        }
+    }
+
+    private func flushPending() {
+        guard let id = currentAssistantId,
+              let idx = messages.firstIndex(where: { $0.id == id }) else {
+            pendingText = ""
+            pendingReasoning = ""
+            return
+        }
+        if !pendingReasoning.isEmpty {
+            messages[idx].reasoning.append(pendingReasoning)
+            pendingReasoning = ""
+        }
+        if !pendingText.isEmpty {
+            messages[idx].content.append(pendingText)
+            pendingText = ""
+        }
+    }
+
     init() {}
 
     // MARK: - Session
@@ -617,14 +656,14 @@ final class AgentViewModel: ObservableObject {
     private func handleEvent(_ event: AgentRuntime.Event) {
         switch event {
         case .reasoningDelta(let text):
-            guard let id = currentAssistantId,
-                  let idx = messages.firstIndex(where: { $0.id == id }) else { return }
-            messages[idx].reasoning.append(text)
+            // [PERF] 走 10Hz 节流缓冲，不直接触发 UI 重渲染
+            pendingReasoning.append(text)
+            scheduleFlush()
 
         case .textDelta(let text):
-            guard let id = currentAssistantId,
-                  let idx = messages.firstIndex(where: { $0.id == id }) else { return }
-            messages[idx].content.append(text)
+            // [PERF] 走 10Hz 节流缓冲，不直接触发 UI 重渲染
+            pendingText.append(text)
+            scheduleFlush()
 
         case .toolCallStarted(let name):
             // 不再输出"🔧 正在调用工具"提示消息，只关闭 streaming 占位
@@ -721,6 +760,9 @@ final class AgentViewModel: ObservableObject {
 
     private func finishStreaming() {
         isStreaming = false
+        flushTask?.cancel()
+        flushTask = nil
+        flushPending() // [PERF] 落盘残余缓冲，保证不丢字
         if let id = currentAssistantId,
            let idx = messages.firstIndex(where: { $0.id == id }) {
             messages[idx].isStreaming = false
