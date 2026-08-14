@@ -105,9 +105,25 @@ NSURL *ContainerURL(void) {
     NSArray<NSString *> *groups = CurrentAppGroups();
     NSString *appGroup = groups.count > 0 ? groups[0] : nil;
     if (appGroup == nil) {
-        // Dev build with stripped entitlements — fall back to app Documents dir.
-        return [[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory
-                                                     inDomains:NSUserDomainMask] firstObject];
+        // Dev build with stripped entitlements — use Application Support instead of
+        // Documents. UIFileSharingEnabled (Info.plist) is disabled, and even if it were
+        // re-enabled, the fakefs root databases must never sit in the user-visible
+        // Documents folder (they would be exportable / editable via Files.app).
+        // 老版本曾把 roots 放在 Documents: 首次启动迁移到新位置, 迁移失败则沿用旧位置。
+        NSFileManager *fm = NSFileManager.defaultManager;
+        NSURL *docs = [fm URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
+        NSURL *support = [fm URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+        NSURL *legacyRoots = [docs URLByAppendingPathComponent:@"roots"];
+        NSURL *newRoots = [support URLByAppendingPathComponent:@"roots"];
+        if ([fm fileExistsAtPath:legacyRoots.path] && ![fm fileExistsAtPath:newRoots.path]) {
+            NSError *moveError = nil;
+            [fm createDirectoryAtURL:support withIntermediateDirectories:YES attributes:nil error:nil];
+            if (![fm moveItemAtURL:legacyRoots toURL:newRoots error:&moveError]) {
+                NSLog(@"AppGroup: moving legacy roots failed (%@), keeping Documents location", moveError.localizedDescription);
+                return docs;
+            }
+        }
+        return support;
     }
     return [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:appGroup];
 }

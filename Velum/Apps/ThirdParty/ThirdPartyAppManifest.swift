@@ -87,6 +87,53 @@ public struct ThirdPartyAppManifest: Codable, Identifiable, Hashable, Sendable {
         }
     }
 
+    // MARK: 校验（安装链安全）
+
+    /// id 白名单：反向域名风格。仅小写字母/数字/点/下划线/连字符，
+    /// 必须含至少一个点，不含连续点，不以点/连字符/下划线结尾。
+    public static func isValidID(_ id: String) -> Bool {
+        guard !id.isEmpty, id.count <= 128, id.contains("."), !id.contains("..") else { return false }
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789._-")
+        guard id.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return false }
+        guard let first = id.first, let last = id.last else { return false }
+        return first != "." && last != "." && last != "-" && last != "_"
+    }
+
+    /// 入口文件安全：必须是相对路径，且不含 .. 分段。
+    public var isEntrySafe: Bool {
+        let e = runtime.entry
+        guard !e.hasPrefix("/") else { return false }
+        return e.split(separator: "/").allSatisfy { $0 != ".." && $0 != "." }
+    }
+
+    /// runtime 整体安全：h5/elf 校验入口文件；webService 校验 url scheme 与端口范围；
+    /// cwd（若有）必须落在本 App 沙箱内且不含单引号（防止 shell 拼接逃逸）。
+    public var isRuntimeSafe: Bool {
+        if let cwd = runtime.cwd, !cwd.isEmpty {
+            guard !cwd.contains("'"),
+                  cwd == sandboxRoot || cwd.hasPrefix(sandboxRoot + "/") else { return false }
+        }
+        switch form {
+        case .h5Package, .elfBridge:
+            return isEntrySafe
+        case .webService:
+            if let u = runtime.url, !u.isEmpty {
+                guard let url = URL(string: u), let scheme = url.scheme?.lowercased(),
+                      ["http", "https"].contains(scheme) else { return false }
+                return true
+            }
+            return (0...65535).contains(runtime.port)
+        }
+    }
+
+    /// 安装前综合校验。返回 nil 表示通过；否则返回人读的错误描述。
+    public var installSafetyIssue: String? {
+        if !Self.isValidID(id) { return "id 非法（需反向域名风格小写标识符）" }
+        if !isEntrySafe { return "入口文件必须为沙箱内相对路径" }
+        if !isRuntimeSafe { return "runtime 配置非法（端口越界或 URL scheme 不受支持）" }
+        return nil
+    }
+
     // MARK: 派生路径
 
     /// App 在 iSH fakefs 内的沙箱根目录。

@@ -56,6 +56,9 @@ final class FirstBootSetup: ObservableObject {
     private let firstBootKey = "velum.firstBootSetupCompleted"
     private let defaults = UserDefaults.standard
 
+    /// 重入保护：失败后用户点「重试」可能与残留运行交错。
+    private var isRunning = false
+
     // MARK: - Public
 
     var isNeeded: Bool {
@@ -68,6 +71,9 @@ final class FirstBootSetup: ObservableObject {
             phase = .completed
             return
         }
+        guard !isRunning else { return }
+        isRunning = true
+        defer { isRunning = false }
 
         // 1. 切换国内镜像源（官方 CDN 在国内访问慢）
         phase = .switchingMirror

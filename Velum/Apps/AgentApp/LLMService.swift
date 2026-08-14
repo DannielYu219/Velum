@@ -312,8 +312,14 @@ final class AgentConfig: ObservableObject {
     func makeProvider() -> ModelProvider? {
         // [TASK #7] DeepSeek Responses API 优先
         if model.lowercased().contains("deepseek") && (model.hasPrefix("deepseek/") || model.contains("r1")) {
-            guard !apiKey.isEmpty, !endpoint.isEmpty else { return nil }
-            let baseURL = URL(string: endpoint) ?? URL(string: "https://api.deepseek.com/v1")!
+            guard !apiKey.isEmpty else { return nil }
+            // [修复] Responses API 只在 DeepSeek 官方端点存在。
+            // 若用户配置的是 OpenRouter 等其他端点, 必须强制切回官方端点, 否则
+            // /api/v1/responses 会 404。
+            let effective = endpoint.lowercased().contains("deepseek.com")
+                ? endpoint
+                : "https://api.deepseek.com/v1"
+            let baseURL = URL(string: effective) ?? URL(string: "https://api.deepseek.com/v1")!
             return DeepSeekResponsesClient(baseURL: baseURL, apiKey: apiKey)
         }
         
@@ -664,10 +670,13 @@ extension Message {
                 contents.append(.type_text(text: text))
             }
             if let toolCalls = toolCalls, !toolCalls.isEmpty {
-                contents.append(.type_function_call(
-                    name: toolCalls.first?.function.name ?? "",
-                    arguments: toolCalls.first?.function.arguments ?? ""
-                ))
+                // [修复] 并行工具调用全部携带, 不再只取 first。
+                for tc in toolCalls {
+                    contents.append(.type_function_call(
+                        name: tc.function.name,
+                        arguments: tc.function.arguments
+                    ))
+                }
             }
             return .init(role: .assistant, content: contents, callId: nil)
         case "tool":
@@ -679,12 +688,12 @@ extension Message {
 }
 
 extension ToolDefinition {
-    /// 转换为 DeepSeek 工具格式
+    /// 转换为 DeepSeek 工具格式（完整 JSON Schema，不再传空字典）。
     func toDeepSeekTool() -> DeepSeekFunctionTool {
         return .init(type: "function", function: .init(
             name: function.name,
             description: function.description,
-            parameters: [:] // [TODO] 转换 JSONValue 为 Dictionary
+            parameters: function.parameters
         ))
     }
 }
@@ -842,7 +851,8 @@ struct DeepSeekFunctionTool: Encodable {
 struct DeepSeekFunction: Encodable {
     let name: String
     let description: String
-    let parameters: [String: String]
+    /// 完整 JSON Schema（任意嵌套）。旧版 [String: String] 无法表达对象/数组属性。
+    let parameters: JSONValue
 }
 
 // MARK: - LocalModelCleanup（一次性清理已废弃的本地 MLX 模型文件）

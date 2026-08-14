@@ -46,9 +46,13 @@ struct ContentView: View {
         .onDisappear { kernel.stopObserving() }
         .task {
             LocalModelCleanup.cleanUp()
-            try? await MCPServer.shared.start()
+            // MCP 默认关闭，需在 Settings 显式开启（开启后仅回环可连，且需 initialize 返回的令牌）。
+            if UserDefaults.standard.bool(forKey: "velum.mcp.enabled") {
+                try? await MCPServer.shared.start()
+            }
             while kernel.state != .ready {
-                try? await Task.sleep(nanoseconds: 200_000_000)
+                if Task.isCancelled { return }
+                do { try await Task.sleep(nanoseconds: 200_000_000) } catch { return }
                 if case .failed = kernel.state { break }
             }
             if kernel.state == .ready {
@@ -247,7 +251,8 @@ private extension EnvironmentValues {
 // so the window never alters the parent ZStack's layout size.
 
 private struct DesktopWindow: View {
-    let window: AppWindow
+    // [性能] 逐窗口观察: 拖/缩放/聚焦只重渲染本窗口, 不再全桌面重渲染。
+    @ObservedObject var window: AppWindow
     let onClose: () -> Void
     let onMinimize: () -> Void
     let onZoom: () -> Void
@@ -324,13 +329,23 @@ private struct DesktopWindow: View {
     }
 
     private func dockIconCenter(_ screenSize: CGSize) -> CGPoint {
-        guard let appIndex = VelumApp.allCases.firstIndex(of: window.app) else {
+        // 与 Dock 完全一致的图标列表（单一数据源），修复旧版 allCases(11) vs pinned(9) 错位。
+        let builtIns = Dock.pinnedApps
+        let thirdParty: [String] = {
+            var seen = Set<String>()
+            return wm.windows.compactMap { $0.thirdPartyId }.filter { seen.insert($0).inserted }
+        }()
+        let appIndex: Int
+        if let tp = window.thirdPartyId, let idx = thirdParty.firstIndex(of: tp) {
+            appIndex = builtIns.count + idx
+        } else if let idx = builtIns.firstIndex(of: window.app) {
+            appIndex = idx
+        } else {
             return CGPoint(x: screenSize.width / 2, y: max(0, screenSize.height - 50))
         }
-        let iconCount = VelumApp.allCases.count
         let iconSlot: CGFloat = 76
         let dockPadding: CGFloat = 8
-        let dockTotalWidth = CGFloat(iconCount) * iconSlot + dockPadding * 2
+        let dockTotalWidth = CGFloat(builtIns.count + thirdParty.count) * iconSlot + dockPadding * 2
         let dockStart = (screenSize.width - dockTotalWidth) / 2
         let x = dockStart + dockPadding + iconSlot / 2 + CGFloat(appIndex) * iconSlot
         let y = max(0, screenSize.height - 50)

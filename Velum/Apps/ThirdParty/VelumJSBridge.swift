@@ -65,12 +65,18 @@ final class VelumJSBridge: NSObject, WKScriptMessageHandler {
     // MARK: WKScriptMessageHandler
 
     nonisolated func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "velum",
-              let body = message.body as? [String: Any],
-              let id = body["id"] as? String,
-              let op = body["op"] as? String else { return }
-        let args = body["args"] as? [Any] ?? []
+        // WKScriptMessage 的属性在 SDK 里是 MainActor 隔离, 检查统一放进主线程 Task 执行。
+        // 来源校验: 只接受主 frame 且来自本 App 的 velumapp://app 页面的消息。
+        // 防止 App 导航/被 iframe 注入远程页面后, 远程页面继续持有 window.velum 的全部能力。
         Task { @MainActor in
+            guard message.name == "velum",
+                  message.frameInfo.isMainFrame,
+                  message.frameInfo.request.url?.scheme == FakefsSchemeHandler.scheme,
+                  message.frameInfo.request.url?.host == "app",
+                  let body = message.body as? [String: Any],
+                  let id = body["id"] as? String,
+                  let op = body["op"] as? String else { return }
+            let args = body["args"] as? [Any] ?? []
             await self.handle(id: id, op: op, args: args)
         }
     }
@@ -78,7 +84,9 @@ final class VelumJSBridge: NSObject, WKScriptMessageHandler {
     // MARK: 分发 + 权限闸门
 
     private func handle(id: String, op: String, args: [Any]) async {
-        onCall?(op, args.map { "\($0)" }.joined(separator: " "))
+        // 日志脱敏: 只记录 op 与参数摘要, 不把完整命令/文件内容送进控制台。
+        let summary = args.map { "\($0)" }.joined(separator: " ")
+        onCall?(op, String(summary.prefix(80)))
         do {
             let result: String
             switch op {
@@ -98,15 +106,25 @@ final class VelumJSBridge: NSObject, WKScriptMessageHandler {
             case "exec":
                 try require("exec")
                 guard let cmd = args.first as? String else { throw BridgeError.badArgs }
-                let r = try await ISHBridge.shared.execute(cmd)
+                // [性能/安全] 默认 30s 超时: 防止 H5 页面触发死循环/挂起命令
+                // 拖垮整个桌面(超时自动 SIGKILL guest 进程)。
+                let r = try await ISHBridge.shared.execute(cmd, timeout: 30)
                 result = "exit: \(r.exitCode)\n\(r.output)"
             case "readFile":
-                guard let path = args.first as? String else { throw BridgeError.badArgs }
-                result = try await ISHBridge.shared.readTextFile(path)
+                try require("fs")
+                guard let path = args.first as? String, !path.isEmpty else { throw BridgeError.badArgs }
+                guard let safe = await sandboxedPath(path) else {
+                    throw BridgeError.denied("路径越出应用沙箱")
+                }
+                result = try await ISHBridge.shared.readTextFile(safe)
             case "writeFile":
-                guard let path = args.first as? String,
+                try require("fs")
+                guard let path = args.first as? String, !path.isEmpty,
                       let content = args.count > 1 ? args[1] as? String : nil else { throw BridgeError.badArgs }
-                let n = try await ISHBridge.shared.writeTextFile(path, text: content)
+                guard let safe = await sandboxedPath(path) else {
+                    throw BridgeError.denied("路径越出应用沙箱")
+                }
+                let n = try await ISHBridge.shared.writeTextFile(safe, text: content)
                 result = "wrote \(n) bytes"
             default:
                 throw BridgeError.badArgs
@@ -115,6 +133,20 @@ final class VelumJSBridge: NSObject, WKScriptMessageHandler {
         } catch {
             sendBack(id: id, ok: false, value: error.localizedDescription)
         }
+    }
+
+    // MARK: 路径沙箱
+
+    /// 把 H5 请求的路径解析到本 App 沙箱根内（与 FakefsSchemeHandler 共用同一套语义：
+    /// 相对路径按沙箱内路径解释、绝对路径必须落在 sandboxRoot 前缀内、逐段解析符号链接）。
+    /// 越界返回 nil。
+    /// [性能] 解析会逐段做 dispatch_sync 的 fs 调用, 必须离开主线程执行。
+    private func sandboxedPath(_ raw: String) async -> String? {
+        let root = manifest.sandboxRoot
+        return await Task.detached(priority: .userInitiated) {
+            FakefsSchemeHandler.sandboxedPath(raw, sandboxRoot: root,
+                                              fs: ISHFsBridge.sharedInstance())
+        }.value
     }
 
     /// 权限闸门：未在 manifest 声明的能力一律拒绝。
@@ -168,5 +200,5 @@ final class VelumJSBridge: NSObject, WKScriptMessageHandler {
         writeFile: function(path, content){ return call('writeFile', [path, content]); }
       };
     })();
-    """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+    """, injectionTime: .atDocumentStart, forMainFrameOnly: true)
 }

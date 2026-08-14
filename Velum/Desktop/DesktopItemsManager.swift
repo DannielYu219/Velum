@@ -91,9 +91,28 @@ final class DesktopItemsManager: ObservableObject {
         return item
     }
 
+    /// [性能] 拖动期间每帧都触发, 旧版同步原子写 JSON 到磁盘(主线程卡顿源头)。
+    /// 现在只更新内存状态, 落盘防抖到拖动停止后 400ms。
     func updatePosition(id: UUID, position: CGPoint) {
         guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
         items[idx].position = Self.clampPosition(position, in: currentCanvas())
+        scheduleSave()
+    }
+
+    private var saveTask: Task<Void, Never>?
+
+    private func scheduleSave() {
+        saveTask?.cancel()
+        saveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.save()
+        }
+    }
+
+    /// 立即落盘（删除/新建等低频操作直接调用）。
+    func saveNow() {
+        saveTask?.cancel()
         save()
     }
 

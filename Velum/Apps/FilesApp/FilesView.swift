@@ -53,6 +53,24 @@ struct FilesView: View {
         .task(id: path) {
             await load()
         }
+        .confirmationDialog(
+            pendingDelete?.isDirectory == true
+                ? "删除文件夹「\(pendingDelete?.name ?? "")」及其全部内容？"
+                : "删除文件「\(pendingDelete?.name ?? "")」？",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("删除", role: .destructive) {
+                if let entry = pendingDelete {
+                    deleteEntry(entry)
+                }
+                pendingDelete = nil
+            }
+            Button("取消", role: .cancel) { pendingDelete = nil }
+        }
     }
 
     // MARK: - Toolbar（后退 / 前进 / 上一级 + 地址栏 + 刷新）
@@ -214,7 +232,7 @@ struct FilesView: View {
             }
             if entry.name != "." && entry.name != ".." {
                 Button(role: .destructive) {
-                    deleteEntry(entry)
+                    pendingDelete = entry
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
@@ -322,11 +340,17 @@ struct FilesView: View {
         WindowManager.shared.open(.previewer, contextPath: fullPath(for: entry))
     }
 
+    /// 待确认删除的条目（确认后经 fakefs 删除 API 执行，不走 shell 拼接）。
+    @State private var pendingDelete: ISHDirEntry?
+
     private func deleteEntry(_ entry: ISHDirEntry) {
         let full = fullPath(for: entry)
         Task {
-            let cmd = entry.isDirectory ? "rm -rf \"\(full)\"" : "rm \"\(full)\""
-            _ = try? await bridge.execute(cmd)
+            do {
+                try await bridge.removePath(full, recursive: entry.isDirectory)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
             await load()
         }
     }

@@ -44,7 +44,23 @@
 @property (nonatomic) dispatch_semaphore_t waitSemaphore;
 @property (nonatomic) ISHShellExecutionResult *result;
 @property (atomic) BOOL isCompleted;
+/// 输出被截断标记（超过 ISH_MAX_CAPTURE_BYTES）。
+@property (atomic) BOOL outputTruncated;
 
+// [P0-7] 退出与收尾状态机（统一在 @synchronized(ctx) 下推进，杜绝尾部丢失与并发拷贝崩溃）
+@property (nonatomic) BOOL exitReceived;
+@property (nonatomic) int pendingExitCode;
+@property (nonatomic) int readersFinished;
+@property (nonatomic) BOOL finalized;
+
+// [性能] 行输出批量派发: 每行 dispatch 主队列在长输出时会洪泛主线程(卡 UI),
+// 改为攒批 + 单次 drain。
+@property (nonatomic) NSMutableArray<NSArray *> *pendingLines;
+@property (nonatomic) BOOL drainScheduled;
+
+- (void)enqueueLine:(NSString *)line isStdErr:(BOOL)isStdErr;
+- (void)drainPendingLines;
+- (void)maybeFinalize;
 - (int *)stdoutPipe;
 - (int *)stderrPipe;
 
@@ -70,8 +86,40 @@
         _stderrPipe[1] = -1;
         _result = [[ISHShellExecutionResult alloc] init];
         _result.error = ISHShellExecutorErrorNone;
+        _pendingLines = [NSMutableArray array];
     }
     return self;
+}
+
+/// 把一行输出放进批量缓冲, 首次时调度一次主队列 drain。
+- (void)enqueueLine:(NSString *)line isStdErr:(BOOL)isStdErr {
+    if (self.lineCallback == NULL) return;
+    @synchronized(self.pendingLines) {
+        [self.pendingLines addObject:isStdErr ? @[line, @(YES)] : @[line, @(NO)]];
+        if (self.drainScheduled) return;
+        self.drainScheduled = YES;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self drainPendingLines];
+        });
+    }
+}
+
+/// 主队列上一次性派发当前攒下的所有行。
+- (void)drainPendingLines {
+    NSArray<NSArray *> *batch = nil;
+    @synchronized(self.pendingLines) {
+        self.drainScheduled = NO;
+        if (self.pendingLines.count > 0) {
+            batch = [self.pendingLines copy];
+            [self.pendingLines removeAllObjects];
+        }
+    }
+    if (batch == nil) return;
+    ISHShellLineCallback cb = self.lineCallback;
+    if (cb == NULL) return;
+    for (NSArray *pair in batch) {
+        cb(pair[0], [pair[1] boolValue]);
+    }
 }
 
 - (void)cleanup {
@@ -87,9 +135,45 @@
     [self cleanup];
 }
 
+/// 进程退出 + 两个 reader 都排空管道后, 一次性收尾:
+/// 快照缓冲(与 append 同一把锁) → 关管道 → 回调 completion → 唤醒同步等待者。
+- (void)maybeFinalize {
+    @synchronized(self) {
+        if (self.finalized || !self.exitReceived || self.readersFinished < 2)
+            return;
+        self.finalized = YES;
+        self.result.exitCode = self.pendingExitCode;
+        self.result.duration = -[self.startTime timeIntervalSinceNow];
+        @synchronized(self.stdoutBuffer) {
+            self.result.output = [self.stdoutBuffer copy];
+        }
+        @synchronized(self.stderrBuffer) {
+            self.result.errorOutput = [self.stderrBuffer copy];
+        }
+        if (self.outputTruncated) {
+            self.result.output = [self.result.output stringByAppendingString:@"\n…[output truncated]"];
+        }
+    }
+
+    [self cleanup];
+
+    if (self.completion) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.completion(self.result);
+        });
+    }
+    if (self.waitSemaphore) {
+        dispatch_semaphore_signal(self.waitSemaphore);
+    }
+}
+
 @end
 
 #pragma mark - Executor Implementation
+
+// 单条命令输出缓冲上限(16MB): 超过后丢弃新增内容并打截断标记, 防止
+// 长输出(如 cat /dev/zero)无限累积内存导致 jetsam。
+#define ISH_MAX_CAPTURE_BYTES (16 * 1024 * 1024)
 
 @implementation ISHShellExecutor
 
@@ -337,32 +421,13 @@ static dispatch_once_t _onceToken;
         [_activeExecutions removeObjectForKey:@(pid)];
     }
 
-    if (ctx.isCompleted) return;
-    ctx.isCompleted = YES;
-
-    // Finalize result
-    ctx.result.exitCode = exitCode;
-    ctx.result.duration = -[ctx.startTime timeIntervalSinceNow];
-    ctx.result.output = [ctx.stdoutBuffer copy];
-    ctx.result.errorOutput = [ctx.stderrBuffer copy];
-
-    // Give readers a moment to flush remaining data
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC),
-                   dispatch_get_main_queue(), ^{
-        [ctx cleanup];
-
-        // Call completion callback
-        if (ctx.completion) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                ctx.completion(ctx.result);
-            });
-        }
-
-        // Signal semaphore for sync execution
-        if (ctx.waitSemaphore) {
-            dispatch_semaphore_signal(ctx.waitSemaphore);
-        }
-    });
+    @synchronized(ctx) {
+        if (ctx.exitReceived) return;   // check-then-set 在同一把锁内, 无竞态
+        ctx.exitReceived = YES;
+        ctx.isCompleted = YES;          // reader 借此进入"排空后收尾"模式
+        ctx.pendingExitCode = exitCode;
+    }
+    [ctx maybeFinalize];
 }
 
 #pragma mark - Pipe Reading
@@ -378,7 +443,9 @@ static dispatch_once_t _onceToken;
     NSMutableString *lineBuffer = [NSMutableString string];
     NSMutableString *outputBuffer = isStdErr ? ctx.stderrBuffer : ctx.stdoutBuffer;
 
-    while (!ctx.isCompleted) {
+    // 读取循环: 进程退出(isCompleted)后仍继续排空管道, 直到非阻塞读返回 EAGAIN,
+    // 保证结果缓冲不再丢失尾部数据(旧实现退出即丢尾)。
+    while (1) {
         ssize_t bytesRead = read(fd, buffer, sizeof(buffer) - 1);
 
         if (bytesRead > 0) {
@@ -407,6 +474,9 @@ static dispatch_once_t _onceToken;
         } else {
             // Error or would block
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                if (ctx.isCompleted) {
+                    break;              // 已退出且管道排空 → 收尾
+                }
                 usleep(10000); // 10ms
                 continue;
             } else {
@@ -418,15 +488,22 @@ static dispatch_once_t _onceToken;
     // Process any remaining partial line
     if (lineBuffer.length > 0) {
         @synchronized(outputBuffer) {
-            [outputBuffer appendString:lineBuffer];
+            if (outputBuffer.length < ISH_MAX_CAPTURE_BYTES) {
+                [outputBuffer appendString:lineBuffer];
+            } else {
+                ctx.outputTruncated = YES;
+            }
         }
 
         if (ctx.lineCallback) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                ctx.lineCallback([lineBuffer copy], isStdErr);
-            });
+            [ctx enqueueLine:[lineBuffer copy] isStdErr:isStdErr];
         }
     }
+
+    @synchronized(ctx) {
+        ctx.readersFinished++;
+    }
+    [ctx maybeFinalize];
 }
 
 + (void)processLines:(NSMutableString *)lineBuffer
@@ -446,17 +523,19 @@ static dispatch_once_t _onceToken;
         // Remove processed line from buffer
         [lineBuffer deleteCharactersInRange:NSMakeRange(0, newlineRange.location + 1)];
 
-        // Add to output buffer
+        // Add to output buffer (带上限, 防止无限累积内存)
         @synchronized(outputBuffer) {
-            [outputBuffer appendString:line];
-            [outputBuffer appendString:@"\n"];
+            if (outputBuffer.length < ISH_MAX_CAPTURE_BYTES) {
+                [outputBuffer appendString:line];
+                [outputBuffer appendString:@"\n"];
+            } else {
+                ctx.outputTruncated = YES;
+            }
         }
 
-        // Call line callback
+        // Call line callback（批量派发, 见 enqueueLine/drainPendingLines）
         if (ctx.lineCallback) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                ctx.lineCallback(line, isStdErr);
-            });
+            [ctx enqueueLine:line isStdErr:isStdErr];
         }
     }
 }

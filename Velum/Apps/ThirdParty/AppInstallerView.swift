@@ -22,6 +22,8 @@ struct AppInstallerView: View {
     @State private var installing: Set<String> = []
     /// .vap 安装进行中（写入 + 解包 + 落地）。
     @State private var vapWorking = false
+    /// 解包完成、等待用户确认权限的包。
+    @State private var pendingVAP: PreparedVAP? = nil
     /// 安装结果提示（成功 / 失败）。
     @State private var outcome: InstallOutcome? = nil
 
@@ -89,6 +91,20 @@ struct AppInstallerView: View {
             } message: { o in
                 Text(o.message)
             }
+            // [安全加固] .vap 安装前权限复核：展示包声明的系统资源权限，用户确认后才落地。
+            .confirmationDialog(
+                "安装「\(pendingVAP?.manifest.name ?? "")」？",
+                isPresented: Binding(
+                    get: { pendingVAP != nil },
+                    set: { if !$0 { cancelVAPInstall() } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("安装") { confirmVAPInstall() }
+                Button("取消", role: .cancel) { cancelVAPInstall() }
+            } message: {
+                Text(vapPermissionSummary)
+            }
             .overlay {
                 if vapWorking { installingHUD }
             }
@@ -97,16 +113,71 @@ struct AppInstallerView: View {
 
     // MARK: - .vap 安装
 
+    /// 第一步：解包 + 校验 manifest，得到权限清单后弹确认框（不落地）。
     private func installVAP(_ url: URL) async {
         vapWorking = true
         defer { vapWorking = false }
         do {
-            let manifest = try await registry.installVAP(at: url)
-            outcome = InstallOutcome(success: true, title: "安装成功",
-                                     message: "已安装「\(manifest.name)」（\(manifest.form.displayName)）")
+            let prepared = try await VAPInstaller.prepare(from: url)
+            pendingVAP = prepared
         } catch {
             outcome = InstallOutcome(success: false, title: "安装失败",
                                      message: error.localizedDescription)
+        }
+    }
+
+    /// 第二步：用户确认后落地并注册。
+    private func confirmVAPInstall() {
+        guard let prepared = pendingVAP else { return }
+        pendingVAP = nil
+        vapWorking = true
+        Task {
+            defer { vapWorking = false }
+            do {
+                try await prepared.land()
+                registry.install(prepared.manifest)
+                outcome = InstallOutcome(success: true, title: "安装成功",
+                                         message: "已安装「\(prepared.manifest.name)」（\(prepared.manifest.form.displayName)）")
+            } catch {
+                outcome = InstallOutcome(success: false, title: "安装失败",
+                                         message: error.localizedDescription)
+            }
+        }
+    }
+
+    /// 用户取消：丢弃暂存区。
+    private func cancelVAPInstall() {
+        guard let prepared = pendingVAP else { return }
+        pendingVAP = nil
+        Task { await prepared.discard() }
+    }
+
+    /// 权限摘要文本（危险权限加 ⚠️ 标记）。
+    private var vapPermissionSummary: String {
+        guard let m = pendingVAP?.manifest else { return "" }
+        let declared = m.permissions.isEmpty ? ["（未声明任何权限）"] : m.permissions
+        let dangerous: Set<String> = ["exec", "fs", "lan", "hostfs-ro", "camera", "photos", "location"]
+        let lines = declared.map { p in
+            let label = Self.permissionLabel(p)
+            return dangerous.contains(p) ? "• \(label) ⚠️" : "• \(label)"
+        }
+        return "该 App 将获得以下系统资源权限：\n"
+            + lines.joined(separator: "\n")
+            + "\n\n来源：.vap 安装包（未签名）。请确认你信任该包。"
+    }
+
+    private static func permissionLabel(_ p: String) -> String {
+        switch p {
+        case "exec":      return "在 Linux 容器内执行命令（exec）"
+        case "fs":        return "读写自身沙箱文件（fs）"
+        case "clipboard": return "读取/写入剪贴板"
+        case "notify":    return "发送系统通知"
+        case "lan":       return "局域网访问（lan）"
+        case "hostfs-ro": return "只读访问宿主文件（hostfs-ro）"
+        case "camera":    return "相机"
+        case "photos":    return "相册"
+        case "location":  return "定位"
+        default:          return p
         }
     }
 

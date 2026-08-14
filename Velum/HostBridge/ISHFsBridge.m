@@ -16,6 +16,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <errno.h>
+#include <string.h>
 
 #include "kernel/task.h"
 #include "kernel/fs.h"
@@ -47,6 +49,36 @@
 #ifndef LSEEK_SET
 #define LSEEK_SET (0)
 #endif
+
+/// 递归删除 fakefs 路径（符号链接本身按文件删除，不跟随）。深度上限 64。
+static int fs_delete_recursive(const char *cpath, BOOL recursive, int *depth) {
+    if (*depth > 64) return -ELOOP;
+    struct statbuf st;
+    int err = generic_statat(AT_PWD, cpath, &st, false);
+    if (err < 0) return err;
+    if (!S_ISDIR(st.mode)) {
+        return generic_unlinkat(AT_PWD, cpath);
+    }
+    if (!recursive) {
+        return generic_rmdirat(AT_PWD, cpath);
+    }
+    struct fd *dir = generic_open(cpath, O_RDONLY_ | O_DIRECTORY_, 0);
+    if (IS_ERR(dir)) return (int)PTR_ERR(dir);
+    struct dir_entry entry;
+    int result = 0;
+    while (dir->ops->readdir && dir->ops->readdir(dir, &entry) == 1) {
+        if (strcmp(entry.name, ".") == 0 || strcmp(entry.name, "..") == 0) continue;
+        char child[MAX_PATH];
+        snprintf(child, sizeof(child), "%s/%s", cpath, entry.name);
+        (*depth)++;
+        result = fs_delete_recursive(child, YES, depth);
+        (*depth)--;
+        if (result < 0) break;
+    }
+    fd_close(dir);
+    if (result < 0) return result;
+    return generic_rmdirat(AT_PWD, cpath);
+}
 
 static NSString *const ISHFsErrorDomain = @"ISHFsBridge";
 
@@ -257,9 +289,19 @@ static NSError *errorFromErrno(const char *path, int err) {
             return;
         }
 
+        // 循环写: 单次 write 可能短写, 大文件必须写满为止。
         ssize_t n = 0;
         if (fd->ops->write) {
-            n = fd->ops->write(fd, data.bytes, data.length);
+            size_t remaining = data.length;
+            const uint8_t *p = data.bytes;
+            while (remaining > 0) {
+                ssize_t w = fd->ops->write(fd, p, remaining);
+                if (w < 0) { n = w; break; }
+                if (w == 0) break;
+                p += w;
+                remaining -= (size_t)w;
+                n += w;
+            }
         }
         fd_close(fd);
 
@@ -272,6 +314,32 @@ static NSError *errorFromErrno(const char *path, int err) {
 
     if (error) *error = blockError;
     return written;
+}
+
+// MARK: - delete
+
+- (BOOL)deletePath:(NSString *)path recursive:(BOOL)recursive error:(NSError **)error {
+    __block BOOL ok = NO;
+    __block NSError *blockError = nil;
+
+    dispatch_sync(_fsQueue, ^{
+        ensure_current();
+        const char *cpath = path.fileSystemRepresentation;
+        if (cpath == NULL || strcmp(cpath, "/") == 0 || strcmp(cpath, "") == 0) {
+            blockError = makeError(ISHFsErrorPermissionDenied, @"refusing to delete root path");
+            return;
+        }
+        int depth = 0;
+        int err = fs_delete_recursive(cpath, recursive, &depth);
+        if (err < 0) {
+            blockError = errorFromErrno(cpath, err);
+            return;
+        }
+        ok = YES;
+    });
+
+    if (error) *error = blockError;
+    return ok;
 }
 
 // MARK: - readlink

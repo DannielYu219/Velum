@@ -24,3 +24,4 @@ bench/
 
 # Xcode SwiftPM local state (user-specific)
 xcshareddata/swiftpm/
+build-release/

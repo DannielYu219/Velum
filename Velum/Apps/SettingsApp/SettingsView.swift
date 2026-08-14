@@ -17,6 +17,9 @@ struct SettingsView: View {
     
     /// [TASK #9] 桌面缩放比状态 (默认 100%)
     @State private var scaleValue: Double = 1.0
+
+    /// MCP 服务开关（默认关闭；开启后仅 127.0.0.1 可连，且需 initialize 返回的令牌）。
+    @AppStorage("velum.mcp.enabled") private var mcpEnabled: Bool = false
     
     var body: some View {
         NavigationStack {
@@ -28,6 +31,7 @@ struct SettingsView: View {
                 keyboardSection
                 launchSection
                 rootfsSection
+                developerSection
                 displaySection // [TASK #9] 新增显示设置
                 aboutSection
             }
@@ -106,6 +110,11 @@ struct SettingsView: View {
             }
             Toggle("隐藏状态栏", isOn: hideStatusBarBinding)
             Toggle("禁止屏幕变暗", isOn: disableDimmingBinding)
+            // 性能开关: 玻璃/材质层退化为纯色半透明, 明显降低 GPU 合成成本。
+            Toggle("降低视觉效果(更流畅)", isOn: Binding(
+                get: { EffectsTuning.shared.reduceEffects },
+                set: { EffectsTuning.shared.reduceEffects = $0 }
+            ))
         }
         .listRowBackground(Color.clear)
     }
@@ -215,6 +224,29 @@ struct SettingsView: View {
             }
         }
         .listRowBackground(Color.clear)
+    }
+
+    // MARK: - Developer
+
+    @ViewBuilder
+    private var developerSection: some View {
+        Section {
+            Toggle("MCP 服务", isOn: $mcpEnabled)
+        } header: {
+            Text("开发者")
+        } footer: {
+            Text("MCP（Model Context Protocol）服务监听本机 127.0.0.1:8765，供外部 Agent 客户端控制桌面与 iSH。关闭时不可连接。每次启动会生成随机令牌，客户端须先调用 initialize 取得令牌，随后每个请求携带它。")
+        }
+        .listRowBackground(Color.clear)
+        .onChange(of: mcpEnabled) { enabled in
+            Task {
+                if enabled {
+                    try? await MCPServer.shared.start()
+                } else {
+                    await MCPServer.shared.stop()
+                }
+            }
+        }
     }
 
     // MARK: - Display Scaling [TASK #9]

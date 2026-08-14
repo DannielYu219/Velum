@@ -115,6 +115,15 @@ nonisolated struct AgentTools {
 
     // MARK: - 执行
 
+    /// [内存防护] 工具结果保留上限: 超出部分截断并标注。
+    /// 完整输出会同时存进 messages(内存)与模型上下文, 长会话+大输出是内存累积主因。
+    private static let maxToolResultChars = 120_000
+
+    private static func capped(_ s: String) -> String {
+        guard s.count > maxToolResultChars else { return s }
+        return String(s.prefix(maxToolResultChars)) + "\n…[输出过长已截断, 共 \(s.count) 字符]"
+    }
+
     /// 执行工具调用，返回 JSON 字符串
     static func execute(name: String, argumentsJSON: String) async -> String {
         let args = (try? JSONSerialization.jsonObject(with: argumentsJSON.data(using: .utf8) ?? Data()) as? [String: Any]) ?? [:]
@@ -129,8 +138,8 @@ nonisolated struct AgentTools {
                 return successJSON([
                     "ok": result.isSuccess,
                     "exit_code": result.exitCode,
-                    "output": result.output,
-                    "stderr": result.errorOutput,
+                    "output": capped(result.output),
+                    "stderr": capped(result.errorOutput),
                     "command": command
                 ])
             } catch {
@@ -153,8 +162,12 @@ nonisolated struct AgentTools {
             let path = args["path"] as? String ?? ""
             guard !path.isEmpty else { return errorJSON("invalid_args", "path 不能为空") }
             do {
+                // readTextFile 整读但 16MB 封顶: 超限时显式告知模型内容被截断。
+                let st = try? await bridge.stat(path)
                 let text = try await bridge.readTextFile(path)
-                return successJSON(["ok": true, "path": path, "content": text])
+                let truncated = (st.map { Int64($0.size) } ?? 0) > 16_777_216
+                return successJSON(["ok": true, "path": path, "content": capped(text),
+                                    "truncated": truncated])
             } catch {
                 return errorJSON("exec_error", "\(error)")
             }
@@ -276,7 +289,10 @@ final class AgentRuntime: @unchecked Sendable {
             let watchdog = Task {
                 try? await Task.sleep(nanoseconds: 120_000_000_000)
                 if !Task.isCancelled {
-                    continuation.yield(.error("120 秒无响应，可能卡死"))
+                    // [修复] 触发时同时取消 provider 流, 而不是只报错: 否则真正卡死时
+                    // 流永不结束、isStreaming 常驻、后续 send 被阻塞。
+                    provider.cancel()
+                    continuation.yield(.error("120 秒无响应，已中止本次请求"))
                 }
             }
 
@@ -490,6 +506,8 @@ final class AgentViewModel: ObservableObject {
     }
 
     func loadSession(_ id: String) async {
+        // [修复] 切换会话前先停掉在跑的流, 防止旧流事件追加进新会话并落盘。
+        stop()
         currentSessionId = id
         let persisted = await SessionStore.shared.loadMessages(for: id)
         if persisted.isEmpty {

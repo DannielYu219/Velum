@@ -63,14 +63,14 @@ struct WebServiceView: UIViewRepresentable {
 
             // 有启动命令 → 在 iSH 内起后端，轮询就绪后加载
             serviceTask = Task { [weak self] in
-                // 后端服务进程（长驻）。consume 流以保持其运行；窗口关闭时 cancel。
-                // TODO(Phase A): 经 ISHBridge 暴露 pid，dismantle 时精确 kill；
-                //                端口由 Control Plane reservePort 统一分配。
+                // 后端服务进程（长驻）。消费流保持其运行；serviceTask 取消时消费
+                // 子任务随之取消 → 流终止 → ISHBridge onTermination SIGKILL 后端进程。
+                // (端口统一分配 TODO 保留, 见 92-third-party-app-program.md Phase A.2)
                 let stream = await ISHBridge.shared.executeStreaming(command)
-                Task {
+                let consumer = Task {
                     do {
                         for try await _ in stream { /* 保持后端运行 */ }
-                    } catch { /* 后端退出 */ }
+                    } catch { /* 后端退出或取消 */ }
                 }
 
                 // 轮询服务就绪（最多 ~15s）
@@ -85,6 +85,8 @@ struct WebServiceView: UIViewRepresentable {
                     try? await Task.sleep(nanoseconds: 500_000_000)
                 }
                 if let url { self?.webView?.load(URLRequest(url: url)) }
+                // 一直消费到被取消（窗口关闭）。
+                await consumer.value
             }
         }
 

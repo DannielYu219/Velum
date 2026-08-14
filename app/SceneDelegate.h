@@ -10,7 +10,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-extern TerminalViewController *currentTerminalViewController;
+// 可空: 桌面层没有打开任何终端窗口时为 NULL(Swift 侧 dismantle 会置空)。
+extern TerminalViewController * _Nullable currentTerminalViewController;
 
 API_AVAILABLE(ios(13))
 @interface SceneDelegate : UIResponder <UIWindowSceneDelegate>

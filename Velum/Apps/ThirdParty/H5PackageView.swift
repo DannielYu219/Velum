@@ -31,6 +31,9 @@ struct H5PackageView: UIViewRepresentable {
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
+        // 导航拦截: 只允许本 App 的 velumapp:// 页面。
+        // 防止跳转到远程页后, 页面仍持有 window.velum 的全部宿主能力。
+        webView.navigationDelegate = context.coordinator
 
         // 挂 JS 桥（window.velum.*）
         let bridge = VelumJSBridge(manifest: manifest)
@@ -38,11 +41,20 @@ struct H5PackageView: UIViewRepresentable {
         context.coordinator.bridge = bridge
         context.coordinator.schemeHandler = schemeHandler
 
-        // 从 fakefs 加载入口文件（经 ISHFsBridge 判断是否存在）。
-        if ISHFsBridge.sharedInstance().exists(manifest.entryPath) {
-            webView.load(URLRequest(url: FakefsSchemeHandler.entryURL(forEntry: manifest.runtime.entry)))
-        } else {
-            webView.loadHTMLString(Self.missingPage(manifest), baseURL: nil)
+        // 从 fakefs 加载入口文件。[性能] exists 是 dispatch_sync 到 fs 串行队列,
+        // 移出主线程, 避免开窗瞬间卡顿。
+        let entry = manifest.entryPath
+        let entryURL = FakefsSchemeHandler.entryURL(forEntry: manifest.runtime.entry)
+        DispatchQueue.global(qos: .userInitiated).async { [weak webView] in
+            let ok = ISHFsBridge.sharedInstance().exists(entry)
+            DispatchQueue.main.async {
+                guard let webView else { return }
+                if ok {
+                    webView.load(URLRequest(url: entryURL))
+                } else {
+                    webView.loadHTMLString(Self.missingPage(manifest), baseURL: nil)
+                }
+            }
         }
         return webView
     }
@@ -51,11 +63,23 @@ struct H5PackageView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    final class Coordinator {
+    final class Coordinator: NSObject, WKNavigationDelegate {
         /// 持有桥，避免其作为 messageHandler 被提前释放。
         var bridge: VelumJSBridge?
         /// 持有 scheme handler，确保其生命周期覆盖 webView。
         var schemeHandler: FakefsSchemeHandler?
+
+        func webView(_ webView: WKWebView,
+                     decidePolicyFor navigationAction: WKNavigationAction,
+                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            if let url = navigationAction.request.url,
+               url.scheme == FakefsSchemeHandler.scheme, url.host == "app" {
+                decisionHandler(.allow)
+            } else {
+                // 远程站点 / 其他 scheme(含 iframe)一律取消, 保持桥的权限边界。
+                decisionHandler(.cancel)
+            }
+        }
     }
 
     private static func missingPage(_ manifest: ThirdPartyAppManifest) -> String {

@@ -42,7 +42,8 @@ public final class AppRegistry: ObservableObject {
             manifest: ThirdPartyAppManifest(
                 id: "demo.h5", name: "H5 演示", form: .h5Package,
                 category: "development", author: "Velum",
-                permissions: ["clipboard", "notify"],
+                // 演示页含「在 iSH 跑 uname -a」按钮，需声明 exec 才不会被权限闸门拒绝
+                permissions: ["clipboard", "notify", "exec"],
                 runtime: .init(entry: "index.html")),
             tagline: "纯 H5/JS 包，WKWebView 直接运行，体验 window.velum JS 桥。"),
         CatalogItem(
@@ -133,6 +134,9 @@ public final class AppRegistry: ObservableObject {
         guard let data = text.data(using: .utf8) else { return "无法读取文本" }
         do {
             let manifest = try JSONDecoder().decode(ThirdPartyAppManifest.self, from: data)
+            if let issue = manifest.installSafetyIssue {
+                return "manifest 无效：\(issue)"
+            }
             install(manifest)
             return nil
         } catch {
@@ -151,7 +155,7 @@ public final class AppRegistry: ObservableObject {
     /// 为 H5/ELF 形态补一个占位入口页（若尚不存在）。
     private func writePlaceholderEntry(for manifest: ThirdPartyAppManifest) async {
         let bridge = ISHBridge.shared
-        _ = try? await bridge.execute("mkdir -p \(manifest.sandboxRoot)")
+        _ = try? await bridge.execute("mkdir -p '\(manifest.sandboxRoot)'")
         let html = """
         <!doctype html><html><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -169,8 +173,15 @@ public final class AppRegistry: ObservableObject {
     }
 
     public func uninstall(_ id: String) {
+        let manifest = app(id)
         installed.removeAll { $0.id == id }
         persist()
+        // 清理沙箱残留（异步 best-effort）：防止同名重装取回旧文件。
+        if let manifest {
+            Task {
+                _ = try? await ISHBridge.shared.execute("rm -rf '\(manifest.sandboxRoot)'")
+            }
+        }
     }
 
     /// 经 WindowManager 打开一个第三方 App 窗口。
@@ -198,7 +209,12 @@ public final class AppRegistry: ObservableObject {
 
     /// 注入三个演示 App（每形态一个），并把 H5 演示包写进 fakefs。幂等。
     public func seedDemosIfNeeded() async {
-        guard !UserDefaults.standard.bool(forKey: seededKey) else { return }
+        let seeded = UserDefaults.standard.bool(forKey: seededKey)
+        if seeded {
+            // 自愈：已播种但演示文件缺失（旧版 best-effort 失败）→ 重写。
+            await repairDemoFilesIfNeeded()
+            return
+        }
 
         // 形态 3：H5 包（纯 WKWebView，JS 即 JIT）
         install(ThirdPartyAppManifest(
@@ -207,7 +223,7 @@ public final class AppRegistry: ObservableObject {
             form: .h5Package,
             category: "development",
             author: "Velum",
-            permissions: ["clipboard", "notify"],
+            permissions: ["clipboard", "notify", "exec"],
             runtime: .init(entry: "index.html")
         ))
 
@@ -232,10 +248,25 @@ public final class AppRegistry: ObservableObject {
             runtime: .init(url: "https://example.com")
         ))
 
-        // 把 H5 演示包写进 fakefs（best-effort；kernel 未就绪时跳过）
+        // 把 H5 演示包写进 fakefs；只有关键入口文件验证存在后才标记完成，
+        // 避免写失败后永久缺失（下次启动会重试）。
         await writeDemoFiles()
+        if await demoFilesExist() {
+            UserDefaults.standard.set(true, forKey: seededKey)
+        }
+    }
 
-        UserDefaults.standard.set(true, forKey: seededKey)
+    /// 补齐缺失的演示入口文件（幂等）。
+    private func repairDemoFilesIfNeeded() async {
+        if await demoFilesExist() { return }
+        await writeDemoFiles()
+    }
+
+    private func demoFilesExist() async -> Bool {
+        let bridge = ISHBridge.shared
+        let h5 = await bridge.exists("/var/lib/velum/apps/demo.h5/index.html")
+        let elf = await bridge.exists("/var/lib/velum/apps/demo.elf/index.html")
+        return h5 && elf
     }
 
     private func writeDemoFiles() async {

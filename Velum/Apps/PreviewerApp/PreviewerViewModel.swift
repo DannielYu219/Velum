@@ -143,7 +143,8 @@ final class PreviewerViewModel: ObservableObject {
     private func loadFakefsPath(_ path: String) async {
         previewState = .loading("读取 \(path)…")
         do {
-            let data = try await bridge.readFile(path)
+            // [修复] 整文件读取: 旧版 readFile 默认 1MB 上限会把大文档/媒体静默截断。
+            let data = try await bridge.readFileWhole(path)
             let ext = (path as NSString).pathExtension
             let title = (path as NSString).lastPathComponent
             try await applyData(data: data, ext: ext, title: title, remoteURL: nil)

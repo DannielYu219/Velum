@@ -74,6 +74,8 @@ private struct JSONRPCRequest: Codable {
     let id: Int
     let method: String
     let params: [String: AnyCodable]?
+    /// 认证令牌（initialize 返回，后续每个请求必须携带）。
+    let token: String?
 }
 
 private struct JSONRPCResponse: Codable {
@@ -134,6 +136,10 @@ public actor MCPServer {
     private let port: UInt16 = 8765
     private var connections: [UUID: MCPConnection] = [:]
 
+    /// 每次进程启动随机生成、仅回环可达的认证令牌。
+    /// initialize 会把令牌返回给客户端，其余方法一律校验。
+    private let authToken: String = UUID().uuidString
+
     private init() {}
 
     // MARK: - Public API
@@ -192,16 +198,20 @@ public actor MCPServer {
                     "protocolVersion": "2024-11-05",
                     "capabilities": ["tools": [:]],
                     "serverInfo": ["name": "velum", "version": "1.0"],
+                    // 认证令牌: 后续所有请求须在顶层携带 "token": <此值>。
+                    "authToken": authToken,
                 ]),
                 error: nil
             )
         case "tools/list":
+            guard request.token == authToken else { return unauthorized(request) }
             return JSONRPCResponse(
                 jsonrpc: "2.0", id: request.id,
                 result: AnyCodable(["tools": Self.allTools.map { $0.encodeToDict() }]),
                 error: nil
             )
         case "tools/call":
+            guard request.token == authToken else { return unauthorized(request) }
             return await handleToolCall(request)
         default:
             return JSONRPCResponse(
@@ -209,6 +219,13 @@ public actor MCPServer {
                 error: RPCError(code: -32601, message: "Method not found: \(request.method)")
             )
         }
+    }
+
+    private func unauthorized(_ request: JSONRPCRequest) -> JSONRPCResponse {
+        JSONRPCResponse(
+            jsonrpc: "2.0", id: request.id, result: nil,
+            error: RPCError(code: -32001, message: "Unauthorized: missing or invalid token (get it from initialize)")
+        )
     }
 
     private func handleToolCall(_ request: JSONRPCRequest) async -> JSONRPCResponse {
@@ -329,7 +346,8 @@ public actor MCPServer {
             guard let cmd = args["command"] as? String else {
                 throw MCPError.missingArgument("command")
             }
-            let r = try await ISHBridge.shared.execute("\(cmd) 2>&1")
+            // 60s 超时: 防止 sleep 洪泛 / 卡死命令耗尽资源。
+            let r = try await ISHBridge.shared.execute("\(cmd) 2>&1", timeout: 60)
             let text = "exit: \(r.exitCode)\n\(r.output)"
             return MCPToolResult(text: text, isError: !r.isSuccess)
 
@@ -349,8 +367,13 @@ public actor MCPServer {
             guard let path = args["path"] as? String else {
                 throw MCPError.missingArgument("path")
             }
+            let st = try? await ISHBridge.shared.stat(path)
             let text = try await ISHBridge.shared.readTextFile(path)
-            return MCPToolResult(text: text)
+            var result = text
+            if let st, Int64(st.size) > 16_777_216 {
+                result += "\n…[文件超过 16MB, 内容已截断]"
+            }
+            return MCPToolResult(text: result)
 
         case "write_file":
             guard let path = args["path"] as? String,
@@ -362,13 +385,13 @@ public actor MCPServer {
 
         // System
         case "list_processes":
-            let r = try await ISHBridge.shared.execute("ps aux 2>&1")
+            let r = try await ISHBridge.shared.execute("ps aux 2>&1", timeout: 30)
             return MCPToolResult(text: r.output)
 
         case "get_system_info":
-            let unameR = try await ISHBridge.shared.execute("uname -a 2>&1")
-            let uptimeR = try await ISHBridge.shared.execute("cat /proc/uptime 2>&1")
-            let memR = try await ISHBridge.shared.execute("cat /proc/meminfo 2>&1 | head -5")
+            let unameR = try await ISHBridge.shared.execute("uname -a 2>&1", timeout: 30)
+            let uptimeR = try await ISHBridge.shared.execute("cat /proc/uptime 2>&1", timeout: 30)
+            let memR = try await ISHBridge.shared.execute("cat /proc/meminfo 2>&1 | head -5", timeout: 30)
             let text = """
             内核: \(unameR.output)
             运行时间: \(uptimeR.output)
@@ -427,7 +450,8 @@ public enum MCPError: LocalizedError {
 private final class MCPConnection: @unchecked Sendable {
     private let nw: NWConnection
     private var buffer = Data()
-    private var lengthPrefixBuffer = Data()
+    /// 每连接并发上限: 防止单客户端无限 spawn 阻塞命令拖垮内核。
+    private let semaphore = DispatchSemaphore(value: 4)
 
     init(_ nw: NWConnection) { self.nw = nw }
 
@@ -463,6 +487,8 @@ private final class MCPConnection: @unchecked Sendable {
             buffer.removeSubrange(buffer.startIndex...newline)
             guard let data = try? JSONDecoder().decode(JSONRPCRequest.self, from: Data(line)) else { continue }
             Task {
+                semaphore.wait()
+                defer { semaphore.signal() }
                 let response = await handler(data)
                 if let respData = try? JSONEncoder().encode(response),
                    var str = String(data: respData, encoding: .utf8) {

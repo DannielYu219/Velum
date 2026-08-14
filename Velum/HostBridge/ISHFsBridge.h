@@ -78,6 +78,12 @@ typedef NS_ENUM(NSInteger, ISHFsError) {
 - (nullable NSString *)readlinkPath:(NSString *)path
                               error:(NSError *_Nullable *_Nullable)error;
 
+/// Delete a file/symlink; with `recursive` also deletes directories (depth-limited).
+/// Refuses to delete "/". Returns YES on success.
+- (BOOL)deletePath:(NSString *)path
+         recursive:(BOOL)recursive
+             error:(NSError *_Nullable *_Nullable)error;
+
 @end
 
 NS_ASSUME_NONNULL_END

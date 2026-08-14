@@ -325,7 +325,9 @@ struct ComposerBar: View {
                     .font(.system(size: AgentDesignTokens.Touch.compactIcon, weight: .medium))
                     .foregroundStyle(viewModel.isStreaming ? Color.red : .primary)
                     .frame(width: AgentDesignTokens.Touch.compact, height: AgentDesignTokens.Touch.compact)
-                    .background(.ultraThinMaterial, in: Circle())
+                    // [性能] 纯色填充代替 ultraThinMaterial: 材质层在每次击键重渲染时
+                    // 都要重新合成, 是输入卡顿的常见来源。
+                    .background(Color(.secondarySystemBackground), in: Circle())
                     .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
                     .contentShape(Circle())
             }
@@ -351,7 +353,9 @@ struct ComposerBar: View {
             RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .strokeBorder(.white.opacity(0.08), lineWidth: 0.5)
         )
-        .shadow(color: .black.opacity(0.04), radius: 16, y: 4)
+        // [性能] 移除 16pt 大阴影: 输入内容每次击键变化都会触发阴影位图重栅格化,
+        // 全屏/高分屏下这是每次击键卡顿的重要来源。改用细边框+微阴影。
+        .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
         .padding(.horizontal, AgentDesignTokens.Spacing.l)
         .padding(.bottom, AgentDesignTokens.Spacing.s)
     }
@@ -555,6 +559,12 @@ struct MessageBubble: View, Equatable {
 struct MarkdownView: View {
     let text: String
 
+    /// [性能] 解析结果缓存: 流式输出每 100ms flush 一次, 旧版每次 body 重解析全文。
+    /// 按 text 键缓存, 带简单 LRU 淘汰(上限 64 条)。
+    private static var parseCache: [String: [Block]] = [:]
+    private static var parseOrder: [String] = []
+    private static let parseCacheMax = 64
+
     var body: some View {
         VStack(alignment: .leading, spacing: AgentDesignTokens.Spacing.s) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
@@ -575,7 +585,21 @@ struct MarkdownView: View {
         case blank
     }
 
-    private var blocks: [Block] { parseBlocks(text) }
+    private var blocks: [Block] {
+        if let cached = Self.parseCache[text] { return cached }
+        let parsed = parseBlocks(text)
+        // 更新 LRU 顺序(先移除旧条目避免重复)。
+        if let old = Self.parseOrder.firstIndex(of: text) {
+            Self.parseOrder.remove(at: old)
+        }
+        Self.parseOrder.append(text)
+        Self.parseCache[text] = parsed
+        if Self.parseCache.count > Self.parseCacheMax, let oldest = Self.parseOrder.first {
+            Self.parseCache.removeValue(forKey: oldest)
+            Self.parseOrder.removeFirst()
+        }
+        return parsed
+    }
 
     private func parseBlocks(_ source: String) -> [Block] {
         var result: [Block] = []

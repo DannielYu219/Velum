@@ -16,6 +16,21 @@
 
 import SwiftUI
 
+// MARK: - Effects Tuning（性能开关）
+
+/// 全局视觉效果开关。开启「降低视觉效果」后，所有玻璃/材质层退化为纯色半透明填充，
+/// 大幅降低 GPU 合成成本（Designed for iPad / 老设备上材质模糊是卡顿大头）。
+public final class EffectsTuning: ObservableObject {
+    public static let shared = EffectsTuning()
+    private static let key = "velum.reduceEffects"
+
+    @Published public var reduceEffects: Bool = UserDefaults.standard.bool(forKey: key) {
+        didSet { UserDefaults.standard.set(reduceEffects, forKey: Self.key) }
+    }
+
+    private init() {}
+}
+
 // MARK: - Glass Style
 
 /// Mirrors the prototype's `.glassEffect(.regular)` / `.glassEffect(.clear.tint(...))` variants.
@@ -45,13 +60,30 @@ private struct GlassModifier<S: Shape>: ViewModifier {
     let style: GlassStyle
     let tint: Color?
     let shape: S
+    @ObservedObject private var tuning = EffectsTuning.shared
 
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
+        if tuning.reduceEffects {
+            cheapGlass(content)
+        } else if #available(iOS 26.0, *) {
             nativeGlass(content)
         } else {
             fallbackGlass(content)
         }
+    }
+
+    /// 低特效路径：纯色半透明填充，零模糊采样。
+    private func cheapGlass(_ content: Content) -> some View {
+        content
+            .background {
+                shape
+                    .fill(style == .clear ? Color.black.opacity(0.24) : Color.black.opacity(0.38))
+                    .overlay {
+                        if let tint {
+                            shape.fill(tint.opacity(0.15))
+                        }
+                    }
+            }
     }
 
     // iOS 26+: native Liquid Glass
@@ -123,11 +155,34 @@ public struct GlassSurface<S: Shape>: View {
         self.shape = shape
     }
 
+    @ObservedObject private var tuning = EffectsTuning.shared
+
     public var body: some View {
-        if #available(iOS 26.0, *) {
+        if tuning.reduceEffects {
+            cheapSurface
+        } else if #available(iOS 26.0, *) {
             nativeSurface
         } else {
             fallbackSurface
+        }
+    }
+
+    /// 低特效路径：纯色半透明填充（interactive 时保留可点击的微透明前景）。
+    @ViewBuilder
+    private var cheapSurface: some View {
+        if interactive {
+            shape
+                .foregroundStyle(.white.opacity(0.01))
+                .background(shape.fill(style == .clear ? Color.black.opacity(0.24) : Color.black.opacity(0.38)))
+                .overlay {
+                    if let tint { shape.fill(tint.opacity(0.15)) }
+                }
+        } else {
+            shape
+                .fill(style == .clear ? Color.black.opacity(0.24) : Color.black.opacity(0.38))
+                .overlay {
+                    if let tint { shape.fill(tint.opacity(0.15)) }
+                }
         }
     }
 

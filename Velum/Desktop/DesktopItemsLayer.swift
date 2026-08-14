@@ -265,7 +265,11 @@ private struct DesktopItemView: View {
         let path = item.path
         // 先从桌面移除引用，避免悬空
         manager.remove(id: item.id)
-        _ = try? await ISHBridge.shared.execute("rm -rf \"\(path)\"")
+        // 经 fakefs 删除 API, 不走 shell 拼接 (文件名注入面)。目录/文件由 stat 判断。
+        let bridge = ISHBridge.shared
+        let st: ISHFileStat? = try? await bridge.stat(path)
+        let isDir = st.map { ($0.mode & 0o170000) == 0o040000 } ?? false
+        _ = try? await bridge.removePath(path, recursive: isDir)
     }
 }
 

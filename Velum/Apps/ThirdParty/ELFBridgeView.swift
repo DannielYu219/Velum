@@ -23,9 +23,12 @@ struct ELFBridgeView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // 左：H5 界面
+            // 左：H5 界面（同时把后端进程输出接到右侧控制台）
             ELFBridgeWebView(manifest: manifest) { op, summary in
                 appendLog("→ \(op) \(summary)")
+            } onBackendOutput: { line in
+                // 后端流运行在后台任务, 回主线程更新 @State。
+                Task { @MainActor in appendLog("后端 | \(line)") }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -89,6 +92,7 @@ struct ELFBridgeView: View {
 private struct ELFBridgeWebView: UIViewRepresentable {
     let manifest: ThirdPartyAppManifest
     let onCall: (String, String) -> Void
+    let onBackendOutput: (String) -> Void
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -104,6 +108,8 @@ private struct ELFBridgeWebView: UIViewRepresentable {
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
+        // 导航拦截: 只允许本 App 的 velumapp:// 页面(同 H5PackageView)。
+        webView.navigationDelegate = context.coordinator
 
         let bridge = VelumJSBridge(manifest: manifest)
         bridge.onCall = { [onCall] op, summary in onCall(op, summary) }
@@ -111,21 +117,77 @@ private struct ELFBridgeWebView: UIViewRepresentable {
         context.coordinator.bridge = bridge
         context.coordinator.schemeHandler = schemeHandler
 
-        if ISHFsBridge.sharedInstance().exists(manifest.entryPath) {
-            webView.load(URLRequest(url: FakefsSchemeHandler.entryURL(forEntry: manifest.runtime.entry)))
-        } else {
-            webView.loadHTMLString(Self.missingPage(manifest), baseURL: nil)
+        // [性能] exists 是 dispatch_sync 到 fs 串行队列, 移出主线程。
+        let entry = manifest.entryPath
+        let entryURL = FakefsSchemeHandler.entryURL(forEntry: manifest.runtime.entry)
+        DispatchQueue.global(qos: .userInitiated).async { [weak webView] in
+            let ok = ISHFsBridge.sharedInstance().exists(entry)
+            DispatchQueue.main.async {
+                guard let webView else { return }
+                if ok {
+                    webView.load(URLRequest(url: entryURL))
+                } else {
+                    webView.loadHTMLString(Self.missingPage(manifest), baseURL: nil)
+                }
+            }
         }
+
+        // [修复] elfBridge 的 runtime.command 此前从未被执行（ELF 后端是空逻辑）。
+        // 现在开窗即启动后端进程, 输出流入控制台, 关窗时 kill。
+        context.coordinator.startBackend(manifest: manifest, onOutput: onBackendOutput)
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {}
 
+    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.stopBackend()
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    final class Coordinator {
+    final class Coordinator: NSObject, WKNavigationDelegate {
         var bridge: VelumJSBridge?
         var schemeHandler: FakefsSchemeHandler?
+        private var backendTask: Task<Void, Never>?
+
+        /// 启动 manifest.runtime.command 作为 ELF 后端, 流式输出到控制台。
+        /// 取消(关窗)时流终止, ISHBridge 的 onTermination 会 SIGKILL 后端进程。
+        func startBackend(manifest: ThirdPartyAppManifest, onOutput: @escaping (String) -> Void) {
+            guard let command = manifest.runtime.command, !command.isEmpty else { return }
+            let full: String
+            if let cwd = manifest.runtime.cwd, !cwd.isEmpty {
+                full = "cd '\(cwd)' && \(command)"
+            } else {
+                full = command
+            }
+            backendTask = Task {
+                let stream = await ISHBridge.shared.executeStreaming(full)
+                do {
+                    for try await line in stream {
+                        onOutput(line)
+                    }
+                } catch {
+                    onOutput("后端退出: \(error.localizedDescription)")
+                }
+            }
+        }
+
+        func stopBackend() {
+            backendTask?.cancel()
+            backendTask = nil
+        }
+
+        func webView(_ webView: WKWebView,
+                     decidePolicyFor navigationAction: WKNavigationAction,
+                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            if let url = navigationAction.request.url,
+               url.scheme == FakefsSchemeHandler.scheme, url.host == "app" {
+                decisionHandler(.allow)
+            } else {
+                decisionHandler(.cancel)
+            }
+        }
     }
 
     private static func missingPage(_ manifest: ThirdPartyAppManifest) -> String {

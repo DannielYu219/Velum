@@ -91,21 +91,23 @@ public enum VelumApp: String, CaseIterable, Identifiable {
 }
 
 /// A running app instance with window geometry.
-public struct AppWindow: Identifiable {
+/// [性能] 引用类型 + 逐属性 @Published: 拖动/缩放/聚焦一个窗口时只失效该窗口的视图,
+/// 不再因 windows 数组整体 publish 而重渲染全部窗口(旧值类型实现是桌面卡顿主因之一)。
+public final class AppWindow: ObservableObject, Identifiable {
     public let id = UUID()
     public let app: VelumApp
-    public var isMinimized: Bool = false
-    public var isMaximized: Bool = false
+    @Published public var isMinimized: Bool = false
+    @Published public var isMaximized: Bool = false
     /// Top-left corner of the window, in screen coordinates.
-    public var position: CGPoint
+    @Published public var position: CGPoint
     /// Window size (ignored when maximized — fills the screen).
-    public var size: CGSize
+    @Published public var size: CGSize
     /// Optional context path passed by Agent (e.g. "/etc" for Files to navigate to).
     public var contextPath: String?
     /// 第三方 App id（非 nil 时窗口内容由 ThirdPartyAppHost 渲染，忽略 `app` 的内建分发）。
-    public var thirdPartyId: String?
+    @Published public var thirdPartyId: String?
     /// [OPTIMIZED] 窗口不透明度（根据焦点计算）
-    public var focusFade: CGFloat = 1.0
+    @Published public var focusFade: CGFloat = 1.0
     
     public init(
         app: VelumApp,
@@ -319,6 +321,17 @@ public final class WindowManager: ObservableObject {
         withAnimation(WindowMotion.open) {
             windows[idx].isMinimized = false
             // 移到顶层（ZStack 末尾）并聚焦
+            let win = windows.remove(at: idx)
+            windows.append(win)
+            frontmostID = win.id
+        }
+    }
+
+    /// 恢复指定第三方 App 最新的最小化窗口（Dock 第三方图标点击）。
+    public func restoreThirdParty(_ thirdPartyId: String) {
+        guard let idx = windows.firstIndex(where: { $0.thirdPartyId == thirdPartyId && $0.isMinimized }) else { return }
+        withAnimation(WindowMotion.open) {
+            windows[idx].isMinimized = false
             let win = windows.remove(at: idx)
             windows.append(win)
             frontmostID = win.id

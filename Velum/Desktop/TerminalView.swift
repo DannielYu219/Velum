@@ -32,4 +32,11 @@ struct TerminalView: UIViewControllerRepresentable {
         // Keep the extra-keys bar suppressed across re-renders.
         uiViewController.hasExternalKeyboard = true
     }
+
+    static func dismantleUIViewController(_ uiViewController: TerminalViewController, coordinator: ()) {
+        // 窗口销毁时清除全局指针，避免悬空引用与多窗口串扰。
+        if currentTerminalViewController === uiViewController {
+            currentTerminalViewController = nil
+        }
+    }
 }
